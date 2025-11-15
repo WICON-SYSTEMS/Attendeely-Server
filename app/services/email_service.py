@@ -2,6 +2,7 @@ import resend
 from app.core.config import settings
 import logging
 from datetime import datetime
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -362,4 +363,161 @@ class EmailService:
         </html>
         """
 
+        return await EmailService.send_email(to_email, subject, html_content)
+    
+    @staticmethod
+    async def send_leave_request_notification(
+        to_email: str,
+        admin_name: str,
+        employee_name: str,
+        request_type: str,
+        start_date: datetime,
+        end_date: datetime,
+        reason: str
+    ) -> bool:
+        """Send notification to admin/manager when new leave request is created"""
+        current_year = datetime.now().year
+        subject = f"New Leave Request - {settings.APP_NAME}"
+        
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                .header {{ background-color: #4F46E5; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }}
+                .content {{ background-color: #f9fafb; padding: 30px; border-radius: 0 0 5px 5px; }}
+                .info-box {{ background: white; padding: 20px; border-radius: 5px; margin: 15px 0; }}
+                .info-item {{ display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e5e7eb; }}
+                .info-label {{ font-weight: bold; color: #6b7280; }}
+                .info-value {{ color: #111827; }}
+                .button {{ display: inline-block; padding: 12px 24px; background-color: #4F46E5; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }}
+                .footer {{ text-align: center; font-size: 14px; color: #6b7280; margin-top: 32px; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header"><h1>📋 New Leave Request</h1></div>
+                <div class="content">
+                    <p>Hi {admin_name},</p>
+                    <p><strong>{employee_name}</strong> has submitted a new leave request that requires your review.</p>
+                    
+                    <div class="info-box">
+                        <h3 style="margin-top: 0; color: #4F46E5;">Request Details</h3>
+                        <div class="info-item">
+                            <span class="info-label">Employee:</span>
+                            <span class="info-value">{employee_name}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Type:</span>
+                            <span class="info-value">{request_type}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Start Date:</span>
+                            <span class="info-value">{start_date.strftime('%Y-%m-%d %H:%M')}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">End Date:</span>
+                            <span class="info-value">{end_date.strftime('%Y-%m-%d %H:%M')}</span>
+                        </div>
+                        <div class="info-item" style="border-bottom: none;">
+                            <span class="info-label">Reason:</span>
+                            <span class="info-value">{reason[:100]}{'...' if len(reason) > 100 else ''}</span>
+                        </div>
+                    </div>
+                    
+                    <p>Please review and approve or reject this request in your dashboard.</p>
+                    
+                    <div style="text-align: center;">
+                        <a href="{settings.FRONTEND_URL}/dashboard/leave-requests" class="button">Review Request</a>
+                    </div>
+                    
+                    <div class="footer">
+                        <p>&copy; {current_year} {settings.APP_NAME}. All rights reserved.</p>
+                    </div>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        return await EmailService.send_email(to_email, subject, html_content)
+    
+    @staticmethod
+    async def send_leave_request_decision_email(
+        to_email: str,
+        employee_name: str,
+        request_type: str,
+        start_date: datetime,
+        end_date: datetime,
+        decision: str,  # "approved" or "rejected"
+        reviewer_name: str,
+        review_notes: Optional[str] = None
+    ) -> bool:
+        """Send notification to employee when leave request is approved or rejected"""
+        current_year = datetime.now().year
+        decision_text = decision.capitalize()
+        decision_color = "#10b981" if decision == "approved" else "#ef4444"
+        decision_icon = "✅" if decision == "approved" else "❌"
+        subject = f"Leave Request {decision_text} - {settings.APP_NAME}"
+        
+        notes_html = f'<div class="info-item" style="border-bottom: none;"><span class="info-label">Notes:</span><span class="info-value">{review_notes}</span></div>' if review_notes else ''
+        attendance_note = f'<p style="color: {decision_color};"><strong>Your attendance records have been adjusted accordingly.</strong></p>' if decision == 'approved' else ''
+        
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                .header {{ background-color: {decision_color}; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }}
+                .content {{ background-color: #f9fafb; padding: 30px; border-radius: 0 0 5px 5px; }}
+                .info-box {{ background: white; padding: 20px; border-radius: 5px; margin: 15px 0; }}
+                .info-item {{ display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e5e7eb; }}
+                .info-label {{ font-weight: bold; color: #6b7280; }}
+                .info-value {{ color: #111827; }}
+                .footer {{ text-align: center; font-size: 14px; color: #6b7280; margin-top: 32px; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header"><h1>{decision_icon} Leave Request {decision_text}</h1></div>
+                <div class="content">
+                    <p>Hi {employee_name},</p>
+                    <p>Your leave request has been <strong style="color: {decision_color};">{decision_text}</strong> by <strong>{reviewer_name}</strong>.</p>
+                    
+                    <div class="info-box">
+                        <h3 style="margin-top: 0; color: {decision_color};">Request Details</h3>
+                        <div class="info-item">
+                            <span class="info-label">Type:</span>
+                            <span class="info-value">{request_type}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Start Date:</span>
+                            <span class="info-value">{start_date.strftime('%Y-%m-%d %H:%M')}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">End Date:</span>
+                            <span class="info-value">{end_date.strftime('%Y-%m-%d %H:%M')}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Reviewed By:</span>
+                            <span class="info-value">{reviewer_name}</span>
+                        </div>
+                        {notes_html}
+                    </div>
+                    
+                    {attendance_note}
+                    
+                    <div class="footer">
+                        <p>&copy; {current_year} {settings.APP_NAME}. All rights reserved.</p>
+                    </div>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
         return await EmailService.send_email(to_email, subject, html_content)

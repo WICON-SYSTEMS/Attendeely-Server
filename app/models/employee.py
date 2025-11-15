@@ -64,4 +64,6 @@ class Employee(Base):
     attendances = relationship("Attendance", back_populates="employee", cascade="all, delete-orphan", foreign_keys="Attendance.employee_id")
     # Relationship with sessions
     sessions = relationship("EmployeeSession", back_populates="employee", cascade="all, delete-orphan")
+    # Relationship with leave requests
+    leave_requests = relationship("LeaveRequest", back_populates="employee", cascade="all, delete-orphan", foreign_keys="LeaveRequest.employee_id")
 
