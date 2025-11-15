@@ -69,18 +69,20 @@ async def employee_login(request: EmployeeLoginRequest, db: Session = Depends(ge
             EmployeeSession.is_active == True
         ).update({"is_active": False})
         
-        # Generate access token for employee
+        # Generate access token for employee with extended expiration (90 days for mobile)
+        employee_token_expires = timedelta(days=settings.EMPLOYEE_TOKEN_EXPIRE_DAYS)
         access_token = create_access_token(
             data={
                 "employee_id": str(employee.id),
                 "email": employee.email,
                 "organization_id": organization.id
-            }
+            },
+            expires_delta=employee_token_expires
         )
         
-        # Create new session
+        # Create new session with extended expiration
         token_hash = hash_token(access_token)
-        expires_at = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        expires_at = datetime.utcnow() + employee_token_expires
         
         new_session = EmployeeSession(
             employee_id=employee.id,
@@ -116,6 +118,107 @@ async def employee_login(request: EmployeeLoginRequest, db: Session = Depends(ge
         logger.error(f"Employee login error: {str(e)}")
         return error_response(
             message="An error occurred during login. Please try again.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@router.post("/refresh-token", status_code=status.HTTP_200_OK)
+async def refresh_employee_token(
+    current_employee: Employee = Depends(get_current_employee),
+    db: Session = Depends(get_db)
+):
+    """
+    Refresh the employee's access token to extend session.
+    This keeps employees logged in on mobile devices.
+    """
+    try:
+        # Get organization
+        organization = db.query(Organization).filter(
+            Organization.id == current_employee.organization_id
+        ).first()
+        
+        if not organization:
+            return error_response(
+                message="Organization not found",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Generate new access token with extended expiration
+        employee_token_expires = timedelta(days=settings.EMPLOYEE_TOKEN_EXPIRE_DAYS)
+        new_access_token = create_access_token(
+            data={
+                "employee_id": str(current_employee.id),
+                "email": current_employee.email,
+                "organization_id": organization.id
+            },
+            expires_delta=employee_token_expires
+        )
+        
+        # Invalidate old active sessions and create a new one
+        db.query(EmployeeSession).filter(
+            EmployeeSession.employee_id == current_employee.id,
+            EmployeeSession.is_active == True
+        ).update({"is_active": False})
+        
+        # Create new session
+        token_hash = hash_token(new_access_token)
+        expires_at = datetime.utcnow() + employee_token_expires
+        
+        new_session = EmployeeSession(
+            employee_id=current_employee.id,
+            token_hash=token_hash,
+            expires_at=expires_at,
+            is_active=True
+        )
+        db.add(new_session)
+        db.commit()
+        
+        return success_response(
+            message="Token refreshed successfully",
+            data={
+                "access_token": new_access_token,
+                "token_type": "bearer",
+                "expires_in_days": settings.EMPLOYEE_TOKEN_EXPIRE_DAYS
+            },
+            status_code=status.HTTP_200_OK
+        )
+        
+    except Exception as e:
+        logger.error(f"Refresh token error: {str(e)}")
+        db.rollback()
+        return error_response(
+            message="An error occurred while refreshing the token. Please try again.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@router.post("/logout", status_code=status.HTTP_200_OK)
+async def employee_logout(
+    current_employee: Employee = Depends(get_current_employee),
+    db: Session = Depends(get_db)
+):
+    """
+    Logout the current employee by invalidating their session.
+    """
+    try:
+        # Invalidate all active sessions for this employee
+        db.query(EmployeeSession).filter(
+            EmployeeSession.employee_id == current_employee.id,
+            EmployeeSession.is_active == True
+        ).update({"is_active": False})
+        
+        db.commit()
+        
+        return success_response(
+            message="Logged out successfully",
+            status_code=status.HTTP_200_OK
+        )
+        
+    except Exception as e:
+        logger.error(f"Logout error: {str(e)}")
+        db.rollback()
+        return error_response(
+            message="An error occurred while logging out. Please try again.",
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 

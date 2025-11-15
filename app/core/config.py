@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    EMPLOYEE_TOKEN_EXPIRE_DAYS: int = 90  # 90 days for persistent mobile login
     
     # Email (Resend)
     RESEND_API_KEY: str
