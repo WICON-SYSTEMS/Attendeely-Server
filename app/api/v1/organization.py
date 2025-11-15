@@ -5,7 +5,8 @@ from app.core.dependencies import get_current_user
 from app.schemas.organization import (
     CreateOrganizationRequest,
     OrganizationResponse,
-    UpdateOrganizationRequest
+    UpdateOrganizationRequest,
+    SetGeofenceRequest
 )
 from app.schemas.response import success_response, error_response
 from app.models.user import User
@@ -14,6 +15,7 @@ from app.services.cloudinary_service import CloudinaryService
 from app.services.email_service import EmailService
 from app.utils.generators import generate_organization_code
 from typing import Optional
+from decimal import Decimal
 import logging
 
 logger = logging.getLogger(__name__)
@@ -149,6 +151,9 @@ async def create_organization(
             currency=new_organization.currency,
             plan=new_organization.plan,
             admin_id=new_organization.admin_id,
+            geofence_latitude=float(new_organization.geofence_latitude) if new_organization.geofence_latitude else None,
+            geofence_longitude=float(new_organization.geofence_longitude) if new_organization.geofence_longitude else None,
+            geofence_radius=float(new_organization.geofence_radius) if new_organization.geofence_radius else None,
             is_active=new_organization.is_active,
             created_at=new_organization.created_at
         )
@@ -205,6 +210,9 @@ async def get_my_organization(
             currency=organization.currency,
             plan=organization.plan,
             admin_id=organization.admin_id,
+            geofence_latitude=float(organization.geofence_latitude) if organization.geofence_latitude else None,
+            geofence_longitude=float(organization.geofence_longitude) if organization.geofence_longitude else None,
+            geofence_radius=float(organization.geofence_radius) if organization.geofence_radius else None,
             is_active=organization.is_active,
             created_at=organization.created_at
         )
@@ -317,6 +325,9 @@ async def update_organization(
             currency=organization.currency,
             plan=organization.plan,
             admin_id=organization.admin_id,
+            geofence_latitude=float(organization.geofence_latitude) if organization.geofence_latitude else None,
+            geofence_longitude=float(organization.geofence_longitude) if organization.geofence_longitude else None,
+            geofence_radius=float(organization.geofence_radius) if organization.geofence_radius else None,
             is_active=organization.is_active,
             created_at=organization.created_at
         )
@@ -332,5 +343,82 @@ async def update_organization(
         db.rollback()
         return error_response(
             message="An error occurred while updating the organization.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@router.post("/set-geofence", status_code=status.HTTP_200_OK)
+async def set_geofence(
+    request: SetGeofenceRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Set geofence coordinates for the organization.
+    Uses the admin's current device location and sets a 20m radius.
+    """
+    try:
+        # Get user's organization
+        organization = db.query(Organization).filter(
+            Organization.admin_id == current_user.id
+        ).first()
+        
+        if not organization:
+            return error_response(
+                message="No organization found. Please create an organization first.",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Validate latitude and longitude
+        if not (-90 <= request.latitude <= 90):
+            return error_response(
+                message="Invalid latitude. Must be between -90 and 90.",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if not (-180 <= request.longitude <= 180):
+            return error_response(
+                message="Invalid longitude. Must be between -180 and 180.",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Set geofence with 20m radius
+        organization.geofence_latitude = Decimal(str(request.latitude))
+        organization.geofence_longitude = Decimal(str(request.longitude))
+        organization.geofence_radius = Decimal("20.00")  # 20 meters
+        
+        db.commit()
+        db.refresh(organization)
+        
+        # Prepare response
+        response_data = OrganizationResponse(
+            id=organization.id,
+            organization_name=organization.organization_name,
+            organization_code=organization.organization_code,
+            logo_url=organization.logo_url,
+            industry=organization.industry,
+            employees_count_range=organization.employees_count_range,
+            country=organization.country,
+            currency=organization.currency,
+            plan=organization.plan,
+            admin_id=organization.admin_id,
+            geofence_latitude=float(organization.geofence_latitude),
+            geofence_longitude=float(organization.geofence_longitude),
+            geofence_radius=float(organization.geofence_radius),
+            is_active=organization.is_active,
+            created_at=organization.created_at
+        )
+        
+        return success_response(
+            message="Geofence set successfully with 20m radius",
+            data=response_data.model_dump(),
+            status_code=status.HTTP_200_OK
+        )
+        
+    except Exception as e:
+        logger.error(f"Set geofence error: {str(e)}")
+        db.rollback()
+        return error_response(
+            message="An error occurred while setting the geofence.",
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )

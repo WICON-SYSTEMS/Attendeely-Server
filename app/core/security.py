@@ -67,3 +67,9 @@ def decode_access_token(token: str) -> Optional[dict]:
         return payload
     except JWTError:
         return None
+
+
+def hash_token(token: str) -> str:
+    """Hash a JWT token for storage"""
+    import hashlib
+    return hashlib.sha256(token.encode()).hexdigest()

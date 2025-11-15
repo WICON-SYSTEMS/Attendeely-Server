@@ -35,11 +35,28 @@ class OrganizationResponse(BaseModel):
     currency: str
     plan: str
     admin_id: int
+    geofence_latitude: Optional[float] = None
+    geofence_longitude: Optional[float] = None
+    geofence_radius: Optional[float] = None
     is_active: bool
     created_at: datetime
     
     class Config:
         from_attributes = True
+
+
+class SetGeofenceRequest(BaseModel):
+    """Request schema for setting geofence"""
+    latitude: float = Field(..., description="Current device latitude")
+    longitude: float = Field(..., description="Current device longitude")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "latitude": 40.7128,
+                "longitude": -74.0060
+            }
+        }
 
 
 class UpdateOrganizationRequest(BaseModel):

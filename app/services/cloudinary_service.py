@@ -75,7 +75,7 @@ class CloudinaryService:
         except Exception as e:
             logger.error(f"Failed to delete logo: {str(e)}")
             return False
-    
+
     @staticmethod
     async def upload_employee_photo(file_content: bytes, filename: str, employee_id: int, organization_id: int) -> Optional[str]:
         """

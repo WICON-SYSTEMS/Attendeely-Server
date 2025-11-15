@@ -60,4 +60,8 @@ class Employee(Base):
     
     # Relationship with organization
     organization = relationship("Organization", back_populates="employees")
+    # Relationship with attendances
+    attendances = relationship("Attendance", back_populates="employee", cascade="all, delete-orphan", foreign_keys="Attendance.employee_id")
+    # Relationship with sessions
+    sessions = relationship("EmployeeSession", back_populates="employee", cascade="all, delete-orphan")
 
