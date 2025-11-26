@@ -262,6 +262,7 @@ async def get_employee_profile(
             employee_code=current_employee.employee_code,
             organization_code=organization.organization_code,
             organization_name=organization.organization_name,
+            organization_currency=organization.currency,
             is_active=current_employee.is_active,
             created_at=current_employee.created_at
         )

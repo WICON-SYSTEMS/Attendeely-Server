@@ -89,6 +89,7 @@ class EmployeeProfileResponse(BaseModel):
     employee_code: str
     organization_code: str
     organization_name: str
+    organization_currency: str
     is_active: bool
     created_at: datetime
     
