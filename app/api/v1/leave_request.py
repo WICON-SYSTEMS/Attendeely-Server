@@ -14,7 +14,9 @@ from app.models.employee import Employee
 from app.models.organization import Organization
 from app.models.leave_request import LeaveRequest, LeaveRequestType, LeaveRequestStatus
 from app.models.attendance import Attendance, AttendanceType
+from app.models.notification import NotificationCategory
 from app.services.email_service import EmailService
+from app.services.notification_service import NotificationService
 from datetime import datetime, timedelta, date, time
 from decimal import Decimal
 from typing import Optional, List
@@ -65,6 +67,14 @@ async def create_leave_request(
                 status_code=status.HTTP_400_BAD_REQUEST
             )
         
+        # Fetch organization/admin for notifications
+        organization = db.query(Organization).filter(
+            Organization.id == current_employee.organization_id
+        ).first()
+        admin_user = None
+        if organization:
+            admin_user = db.query(User).filter(User.id == organization.admin_id).first()
+
         # Create leave request
         leave_request = LeaveRequest(
             employee_id=current_employee.id,
@@ -79,27 +89,41 @@ async def create_leave_request(
         )
         
         db.add(leave_request)
+        db.flush()
+
+        # Notify managers/admins (in-app)
+        if admin_user:
+            NotificationService.create_user_notification(
+                db,
+                user_id=admin_user.id,
+                title="New leave request",
+                message=f"{current_employee.full_name} submitted a {leave_request.request_type.value.lower()} request.",
+                category=NotificationCategory.LEAVE,
+                payload={
+                    "leave_request_id": str(leave_request.id),
+                    "employee_id": str(current_employee.id),
+                    "request_type": leave_request.request_type.value,
+                    "start_date": leave_request.start_date.isoformat(),
+                    "end_date": leave_request.end_date.isoformat(),
+                    "is_full_day": leave_request.is_full_day
+                },
+                auto_commit=False
+            )
+
         db.commit()
         db.refresh(leave_request)
-        
-        # Get organization for notification
-        organization = db.query(Organization).filter(
-            Organization.id == current_employee.organization_id
-        ).first()
-        
-        # Notify managers/admins (get admin user)
-        if organization:
-            admin_user = db.query(User).filter(User.id == organization.admin_id).first()
-            if admin_user:
-                await EmailService.send_leave_request_notification(
-                    to_email=admin_user.email,
-                    admin_name=admin_user.full_name,
-                    employee_name=current_employee.full_name,
-                    request_type=leave_request.request_type.value,
-                    start_date=leave_request.start_date,
-                    end_date=leave_request.end_date,
-                    reason=leave_request.reason
-                )
+
+        # Notify managers/admins via email
+        if admin_user:
+            await EmailService.send_leave_request_notification(
+                to_email=admin_user.email,
+                admin_name=admin_user.full_name,
+                employee_name=current_employee.full_name,
+                request_type=leave_request.request_type.value,
+                start_date=leave_request.start_date,
+                end_date=leave_request.end_date,
+                reason=leave_request.reason
+            )
         
         # Prepare response
         response_data = {
@@ -548,6 +572,23 @@ async def approve_leave_request(
         # Adjust attendance records
         await adjust_attendance_for_approved_request(leave_request, db)
         
+        # Create in-app notification for employee
+        NotificationService.create_employee_notification(
+            db,
+            employee_id=leave_request.employee_id,
+            title="Leave request approved",
+            message=f"Your {leave_request.request_type.value.lower()} request was approved.",
+            category=NotificationCategory.LEAVE,
+            payload={
+                "leave_request_id": str(leave_request.id),
+                "request_type": leave_request.request_type.value,
+                "start_date": leave_request.start_date.isoformat(),
+                "end_date": leave_request.end_date.isoformat(),
+                "review_notes": request.review_notes
+            },
+            auto_commit=False
+        )
+
         db.commit()
         db.refresh(leave_request)
         
@@ -634,6 +675,23 @@ async def reject_leave_request(
         leave_request.review_time = datetime.utcnow()
         leave_request.review_notes = request.review_notes
         
+        # In-app notification
+        NotificationService.create_employee_notification(
+            db,
+            employee_id=leave_request.employee_id,
+            title="Leave request rejected",
+            message=f"Your {leave_request.request_type.value.lower()} request was rejected.",
+            category=NotificationCategory.LEAVE,
+            payload={
+                "leave_request_id": str(leave_request.id),
+                "request_type": leave_request.request_type.value,
+                "start_date": leave_request.start_date.isoformat(),
+                "end_date": leave_request.end_date.isoformat(),
+                "review_notes": request.review_notes
+            },
+            auto_commit=False
+        )
+
         db.commit()
         db.refresh(leave_request)
         

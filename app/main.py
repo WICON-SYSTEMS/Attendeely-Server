@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from app.api.v1 import auth, organization, employee, employee_auth, leave_request
+from app.api.v1 import auth, organization, employee, employee_auth, leave_request, dashboard, notification
 from app.core.config import settings
 import logging
 import time
@@ -58,6 +58,8 @@ app.include_router(organization.router, prefix="/api/v1")
 app.include_router(employee.router, prefix="/api/v1")
 app.include_router(employee_auth.router, prefix="/api/v1")
 app.include_router(leave_request.router, prefix="/api/v1")
+app.include_router(dashboard.router, prefix="/api/v1")
+app.include_router(notification.router, prefix="/api/v1")
 
 
 @app.get("/")

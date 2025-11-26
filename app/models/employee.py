@@ -66,4 +66,6 @@ class Employee(Base):
     sessions = relationship("EmployeeSession", back_populates="employee", cascade="all, delete-orphan")
     # Relationship with leave requests
     leave_requests = relationship("LeaveRequest", back_populates="employee", cascade="all, delete-orphan", foreign_keys="LeaveRequest.employee_id")
+    # Notifications
+    notifications = relationship("Notification", back_populates="employee", cascade="all, delete-orphan")
 
