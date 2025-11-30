@@ -96,3 +96,26 @@ class EmployeeProfileResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
+class AttendanceDashboardResponse(BaseModel):
+    """Response schema for attendance dashboard metrics"""
+    present: int
+    absent: int
+    late: int
+    total_employees: int
+    date: date
+    
+    class Config:
+        from_attributes = True
+
+
+class DailyAttendanceDetailResponse(BaseModel):
+    """Response schema for daily attendance detail"""
+    employee_name: str
+    check_in_time: Optional[datetime] = None
+    check_out_time: Optional[datetime] = None
+    status: str  # "late", "present", or "absent"
+    
+    class Config:
+        from_attributes = True
+
