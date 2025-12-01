@@ -156,7 +156,9 @@ async def get_daily_attendance(
         check_ins = db.query(
             Attendance.employee_id,
             Attendance.timestamp,
-            Attendance.id
+            Attendance.id,
+            Attendance.location_latitude,
+            Attendance.location_longitude
         ).join(
             Employee, Attendance.employee_id == Employee.id
         ).filter(
@@ -166,19 +168,25 @@ async def get_daily_attendance(
             Attendance.timestamp <= day_end
         ).all()
 
-        # Create a map of employee_id -> earliest check-in
+        # Create maps for employee_id -> check-in data
         check_in_map = {}
+        check_in_lat_map = {}
+        check_in_lon_map = {}
         check_in_id_map = {}
         for check_in in check_ins:
             emp_id = check_in.employee_id
             if emp_id not in check_in_map or check_in.timestamp < check_in_map[emp_id]:
                 check_in_map[emp_id] = check_in.timestamp
+                check_in_lat_map[emp_id] = check_in.location_latitude
+                check_in_lon_map[emp_id] = check_in.location_longitude
                 check_in_id_map[emp_id] = check_in.id
 
         # Get all check-outs for the selected date
         check_outs = db.query(
             Attendance.employee_id,
-            Attendance.timestamp
+            Attendance.timestamp,
+            Attendance.location_latitude,
+            Attendance.location_longitude
         ).join(
             Employee, Attendance.employee_id == Employee.id
         ).filter(
@@ -188,13 +196,17 @@ async def get_daily_attendance(
             Attendance.timestamp <= day_end
         ).all()
 
-        # Create a map of employee_id -> check-out time
+        # Create maps for employee_id -> check-out data
         # Use the latest check-out if there are multiple
         check_out_map = {}
+        check_out_lat_map = {}
+        check_out_lon_map = {}
         for check_out in check_outs:
             emp_id = check_out.employee_id
             if emp_id not in check_out_map or check_out.timestamp > check_out_map[emp_id]:
                 check_out_map[emp_id] = check_out.timestamp
+                check_out_lat_map[emp_id] = check_out.location_latitude
+                check_out_lon_map[emp_id] = check_out.location_longitude
 
         # Get employees on approved leave for the selected date
         leave_requests = db.query(LeaveRequest.employee_id).join(
@@ -213,6 +225,10 @@ async def get_daily_attendance(
             emp_id = employee.id
             check_in_time = check_in_map.get(emp_id)
             check_out_time = check_out_map.get(emp_id)
+            check_in_lat = check_in_lat_map.get(emp_id)
+            check_in_lon = check_in_lon_map.get(emp_id)
+            check_out_lat = check_out_lat_map.get(emp_id)
+            check_out_lon = check_out_lon_map.get(emp_id)
 
             # Determine status
             if emp_id in on_leave_ids:
@@ -230,6 +246,10 @@ async def get_daily_attendance(
                 "employee_name": employee.full_name,
                 "check_in_time": check_in_time.isoformat() if check_in_time else None,
                 "check_out_time": check_out_time.isoformat() if check_out_time else None,
+                "check_in_latitude": check_in_lat,
+                "check_in_longitude": check_in_lon,
+                "check_out_latitude": check_out_lat,
+                "check_out_longitude": check_out_lon,
                 "status": status_value
             })
 

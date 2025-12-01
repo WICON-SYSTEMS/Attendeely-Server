@@ -114,6 +114,10 @@ class DailyAttendanceDetailResponse(BaseModel):
     employee_name: str
     check_in_time: Optional[datetime] = None
     check_out_time: Optional[datetime] = None
+    check_in_latitude: Optional[str] = None
+    check_in_longitude: Optional[str] = None
+    check_out_latitude: Optional[str] = None
+    check_out_longitude: Optional[str] = None
     status: str  # "late", "present", or "absent"
     
     class Config:
