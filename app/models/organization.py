@@ -29,3 +29,5 @@ class Organization(Base):
     admin = relationship("User", back_populates="organization", foreign_keys=[admin_id])
     # Relationship with employees
     employees = relationship("Employee", back_populates="organization", cascade="all, delete-orphan")
+    # Relationship with payroll
+    payroll_records = relationship("PayrollRecord", back_populates="organization", cascade="all, delete-orphan")

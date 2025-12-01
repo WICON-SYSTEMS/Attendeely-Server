@@ -6,5 +6,16 @@ from app.models.attendance import Attendance
 from app.models.employee_session import EmployeeSession
 from app.models.leave_request import LeaveRequest
 from app.models.notification import Notification
+from app.models.payroll import PayrollRecord
 
-__all__ = ["User", "OTP", "Organization", "Employee", "Attendance", "EmployeeSession", "LeaveRequest", "Notification"]
+__all__ = [
+    "User",
+    "OTP",
+    "Organization",
+    "Employee",
+    "Attendance",
+    "EmployeeSession",
+    "LeaveRequest",
+    "Notification",
+    "PayrollRecord",
+]

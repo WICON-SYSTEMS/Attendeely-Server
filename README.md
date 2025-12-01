@@ -237,6 +237,15 @@ http://localhost:8000/api/v1
 | GET | `/dashboard/daily-attendance` | Time-series data for attendance trend | Yes (Admin) |
 | GET | `/dashboard/late-absent` | Daily late vs absent breakdown | Yes (Admin) |
 
+### Payroll Endpoints (`/payroll`)
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| POST | `/payroll/process` | Generate or refresh monthly payroll records in real time | Yes (Admin) |
+| GET | `/payroll/summary` | Retrieve total, paid, and pending payroll metrics | Yes (Admin) |
+| GET | `/payroll/employees` | List payroll entries per employee (supports status filter) | Yes (Admin) |
+| PUT | `/payroll/records/{id}` | Update deductions, bonuses, or status for a payroll record | Yes (Admin) |
+
 ### Notification Endpoints (`/notifications`)
 
 | Method | Endpoint | Description | Auth Required |
