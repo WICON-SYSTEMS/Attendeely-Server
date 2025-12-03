@@ -257,6 +257,12 @@ http://localhost:8000/api/v1
 | PUT | `/notifications/employee/{id}/read` | Mark an employee notification as read | Yes (Employee) |
 | PUT | `/notifications/employee/mark-all-read` | Mark all employee notifications as read | Yes (Employee) |
 
+### Support Endpoints (`/support`)
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| POST | `/support/contact` | Send a contact/support message to `support@attendeely.com` | No |
+
 ## 📁 Project Structure
 
 ```

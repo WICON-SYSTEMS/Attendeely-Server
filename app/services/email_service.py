@@ -14,7 +14,12 @@ class EmailService:
     """Service for sending emails via Resend API"""
     
     @staticmethod
-    async def send_email(to_email: str, subject: str, html_content: str) -> bool:
+    async def send_email(
+        to_email: str,
+        subject: str,
+        html_content: str,
+        reply_to: Optional[str] = None,
+    ) -> bool:
         """
         Send an email using Resend API
         
@@ -34,6 +39,10 @@ class EmailService:
                 "subject": subject,
                 "html": html_content,
             }
+            
+            # If a reply-to address is provided, allow replies to go directly to that email
+            if reply_to:
+                params["reply_to"] = [reply_to]
             
             email = resend.Emails.send(params)
             
@@ -521,3 +530,135 @@ class EmailService:
         """
         
         return await EmailService.send_email(to_email, subject, html_content)
+
+    @staticmethod
+    async def send_support_contact_email(
+        name: str,
+        from_email: str,
+        subject: str,
+        message: str,
+    ) -> bool:
+        """
+        Send a contact/support message to the Attendeely support inbox.
+        """
+        current_year = datetime.now().year
+        full_subject = f"[Support] {subject}"
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body {{
+                    font-family: Arial, sans-serif;
+                    line-height: 1.6;
+                    color: #0f172a;
+                    background-color: #f3f4f6;
+                }}
+                .outer {{
+                    max-width: 640px;
+                    margin: 0 auto;
+                    padding: 24px 16px;
+                }}
+                .card {{
+                    background-color: #f9fafb;
+                    border-radius: 8px;
+                    overflow: hidden;
+                    border: 1px solid #e5e7eb;
+                }}
+                .header {{
+                    background-color: #00264d;
+                    color: #ffffff;
+                    padding: 20px 24px;
+                }}
+                .header h2 {{
+                    margin: 0;
+                    font-size: 20px;
+                    font-weight: 600;
+                }}
+                .meta {{
+                    font-size: 13px;
+                    color: #e5e7eb;
+                    margin-top: 8px;
+                }}
+                .meta .label {{
+                    font-weight: 600;
+                    color: #e5e7eb;
+                }}
+                .content {{
+                    padding: 24px;
+                }}
+                .section-label {{
+                    font-weight: 600;
+                    color: #00264d;
+                    margin-top: 12px;
+                    margin-bottom: 4px;
+                    font-size: 14px;
+                }}
+                .subject-text {{
+                    margin: 0;
+                    font-size: 15px;
+                    color: #111827;
+                }}
+                .message-box {{
+                    background: #ffffff;
+                    border-radius: 6px;
+                    padding: 16px;
+                    margin-top: 6px;
+                    border: 1px solid #e5e7eb;
+                    white-space: pre-wrap;
+                    font-size: 14px;
+                    color: #111827;
+                }}
+                .footer {{
+                    margin-top: 20px;
+                    font-size: 12px;
+                    color: #6b7280;
+                    text-align: center;
+                    padding: 12px 24px 18px 24px;
+                    border-top: 1px solid #e5e7eb;
+                }}
+                .brand {{
+                    color: #4F46E5;
+                    font-weight: 600;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="outer">
+                <div class="card">
+                    <div class="header">
+                        <h2>New Support Message</h2>
+                        <p class="meta">
+                            <span class="label">From:</span> {name} &lt;{from_email}&gt;<br/>
+                            <span class="label">Submitted At:</span> {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC
+                        </p>
+                    </div>
+                    <div class="content">
+                        <div>
+                            <p class="section-label">Subject</p>
+                            <p class="subject-text">{subject}</p>
+                        </div>
+                        <div>
+                            <p class="section-label">Message</p>
+                            <div class="message-box">
+                                {message}
+                            </div>
+                        </div>
+                        <div class="footer">
+                            <p>&copy; {current_year} <span class="brand">{settings.APP_NAME}</span>. This message was sent from the in-app contact form.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+
+        # Always send to central support inbox
+        support_email = "support@attendeely.com"
+        return await EmailService.send_email(
+            support_email,
+            full_subject,
+            html_content,
+            reply_to=from_email,
+        )

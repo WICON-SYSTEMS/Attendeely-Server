@@ -7,7 +7,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy import func
+from sqlalchemy import func, case
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -19,6 +19,8 @@ from app.models.payroll import PayrollRecord, PayrollStatus
 from app.models.user import User
 from app.schemas.payroll import (
     PayrollEmployeeEntryResponse,
+    PayrollMonthlyOverviewResponse,
+    PayrollMonthlyPoint,
     PayrollPeriodMeta,
     PayrollProcessRequest,
     PayrollSummaryCounts,
@@ -82,6 +84,11 @@ def _to_float(value: Decimal | float | None) -> float:
     if isinstance(value, Decimal):
         return float(value)
     return float(value)
+
+
+def _month_label(year: int, month: int) -> str:
+    """Return human-readable label for a month, e.g. 'Jan' or 'January'."""
+    return calendar.month_abbr[month]
 
 
 @router.post("/process", status_code=status.HTTP_200_OK)
@@ -259,6 +266,89 @@ async def get_payroll_summary(
     except Exception:
         return error_response(
             message="Unable to load payroll summary",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@router.get("/monthly-overview", status_code=status.HTTP_200_OK)
+async def get_monthly_payroll_overview(
+    year: Optional[int] = Query(None, ge=2000, le=2100),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Return monthly payroll totals for a full year for use in dashboard charts.
+    """
+
+    try:
+        organization = _get_admin_organization(db, current_user)
+        target_year = year or date.today().year
+
+        # Aggregate totals per month from payroll records
+        rows = (
+            db.query(
+                PayrollRecord.period_year.label("year"),
+                PayrollRecord.period_month.label("month"),
+                func.coalesce(func.sum(PayrollRecord.net_pay), 0).label("total_net"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (PayrollRecord.status == PayrollStatus.PAID, PayrollRecord.net_pay),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("paid_net"),
+            )
+            .filter(
+                PayrollRecord.organization_id == organization.id,
+                PayrollRecord.period_year == target_year,
+            )
+            .group_by(PayrollRecord.period_year, PayrollRecord.period_month)
+            .order_by(PayrollRecord.period_month.asc())
+            .all()
+        )
+
+        # Map month -> (total, paid)
+        aggregates = {
+            row.month: (row.total_net or 0, row.paid_net or 0) for row in rows
+        }
+
+        points: list[PayrollMonthlyPoint] = []
+        for month in range(1, 13):
+            total_net_raw, paid_net_raw = aggregates.get(month, (Decimal("0.00"), Decimal("0.00")))
+            total_net = _to_decimal(total_net_raw)
+            paid_net = _to_decimal(paid_net_raw)
+            pending_net = (total_net - paid_net) if total_net >= paid_net else Decimal("0.00")
+
+            points.append(
+                PayrollMonthlyPoint(
+                    month=month,
+                    year=target_year,
+                    label=_month_label(target_year, month),
+                    total_payroll=_to_float(total_net),
+                    paid_amount=_to_float(paid_net),
+                    pending_amount=_to_float(pending_net),
+                )
+            )
+
+        response = PayrollMonthlyOverviewResponse(
+            year=target_year,
+            currency=organization.currency,
+            points=points,
+        )
+
+        return success_response(
+            message="Monthly payroll overview loaded",
+            data=response.model_dump(),
+            status_code=status.HTTP_200_OK,
+        )
+
+    except ValueError as exc:
+        return error_response(message=str(exc), status_code=status.HTTP_404_NOT_FOUND)
+    except Exception:
+        return error_response(
+            message="Unable to load monthly payroll overview",
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 

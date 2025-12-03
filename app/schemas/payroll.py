@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -65,6 +65,25 @@ class PayrollEmployeeEntryResponse(BaseModel):
     status: PayrollStatus
     processed_at: Optional[datetime] = None
     currency: str
+
+
+class PayrollMonthlyPoint(BaseModel):
+    """Single data point for monthly payroll overview chart."""
+
+    month: int
+    year: int
+    label: str
+    total_payroll: float
+    paid_amount: float
+    pending_amount: float
+
+
+class PayrollMonthlyOverviewResponse(BaseModel):
+    """Monthly payroll overview for a full year."""
+
+    year: int
+    currency: str
+    points: List[PayrollMonthlyPoint]
 
 
 class PayrollUpdateRequest(BaseModel):
