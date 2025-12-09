@@ -99,10 +99,26 @@ async def process_payroll(
 ):
     """
     Generate or refresh payroll records for the selected month.
+    Requires Standard or Enterprise plan (automated payroll processing).
     """
 
     try:
-        organization = _get_admin_organization(db, current_user)
+        # Check automated payroll processing feature access
+        from app.core.subscription_access import create_feature_requirement
+        from app.utils.subscription_features import Feature
+        
+        require_automated_payroll = create_feature_requirement(Feature.AUTOMATED_PAYROLL_PROCESSING)
+        try:
+            organization, subscription = await require_automated_payroll(
+                current_user=current_user,
+                db=db
+            )
+        except HTTPException as e:
+            from app.schemas.response import error_response
+            return error_response(
+                message=e.detail,
+                status_code=e.status_code
+            )
         year, month = _resolve_period(request.year, request.month)
         period_start, period_end = _month_bounds(year, month)
         period_start_dt = datetime.combine(period_start, datetime.min.time())

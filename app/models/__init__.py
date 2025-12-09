@@ -8,6 +8,7 @@ from app.models.leave_request import LeaveRequest
 from app.models.notification import Notification
 from app.models.payroll import PayrollRecord
 from app.models.feedback import Feedback
+from app.models.subscription import Subscription, SubscriptionPlan, SubscriptionStatus
 
 __all__ = [
     "User",
@@ -20,4 +21,7 @@ __all__ = [
     "Notification",
     "PayrollRecord",
     "Feedback",
+    "Subscription",
+    "SubscriptionPlan",
+    "SubscriptionStatus",
 ]

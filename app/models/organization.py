@@ -31,3 +31,5 @@ class Organization(Base):
     employees = relationship("Employee", back_populates="organization", cascade="all, delete-orphan")
     # Relationship with payroll
     payroll_records = relationship("PayrollRecord", back_populates="organization", cascade="all, delete-orphan")
+    # Relationship with subscription
+    subscription = relationship("Subscription", back_populates="organization", uselist=False, cascade="all, delete-orphan")

@@ -13,6 +13,7 @@ from app.api.v1 import (
     payroll,
     support,
     feedback,
+    subscription,
 )
 from app.core.config import settings
 import logging
@@ -76,6 +77,7 @@ app.include_router(attendance_tracking.router, prefix="/api/v1")
 app.include_router(payroll.router, prefix="/api/v1")
 app.include_router(support.router, prefix="/api/v1")
 app.include_router(feedback.router, prefix="/api/v1")
+app.include_router(subscription.router, prefix="/api/v1")
 
 
 @app.get("/")

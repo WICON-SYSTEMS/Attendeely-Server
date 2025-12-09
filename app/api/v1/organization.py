@@ -356,17 +356,23 @@ async def set_geofence(
     """
     Set geofence coordinates for the organization.
     Uses the admin's current device location and sets a 300m radius.
+    Requires Standard or Enterprise plan.
     """
     try:
-        # Get user's organization
-        organization = db.query(Organization).filter(
-            Organization.admin_id == current_user.id
-        ).first()
+        # Check geofencing feature access
+        from app.core.subscription_access import create_feature_requirement
+        from app.utils.subscription_features import Feature
         
-        if not organization:
+        require_geofencing = create_feature_requirement(Feature.GEOFENCING)
+        try:
+            organization, subscription = await require_geofencing(
+                current_user=current_user,
+                db=db
+            )
+        except HTTPException as e:
             return error_response(
-                message="No organization found. Please create an organization first.",
-                status_code=status.HTTP_404_NOT_FOUND
+                message=e.detail,
+                status_code=e.status_code
             )
         
         # Validate latitude and longitude
