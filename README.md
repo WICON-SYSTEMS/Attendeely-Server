@@ -24,7 +24,7 @@ A comprehensive attendance management system backend built with FastAPI, Postgre
 - **User Authentication**: Secure signup with email verification via OTP
 - **Organization Management**: Create and manage organization profiles with logo upload
 - **Employee Management**: Create, update, delete, and view employees with QR code generation
-- **Geofencing**: Set location-based attendance boundaries (20m radius)
+- **Geofencing**: Set location-based attendance boundaries (300m radius)
 - **Leave Request Management**: Review, approve, or reject employee leave requests
 - **Dashboard**: View pending approvals, filter requests, and audit history
 - **Email Notifications**: Receive notifications for new leave requests
@@ -330,7 +330,7 @@ Attendeely-backend/
 
 ### Geofencing
 - Admins set geofence coordinates from their device location
-- 20-meter radius using Haversine formula
+- 300-meter radius using Haversine formula
 - Employees must be within geofence to check in
 - Distance calculation for validation
 

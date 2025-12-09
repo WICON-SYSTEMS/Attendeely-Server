@@ -355,7 +355,7 @@ async def set_geofence(
 ):
     """
     Set geofence coordinates for the organization.
-    Uses the admin's current device location and sets a 20m radius.
+    Uses the admin's current device location and sets a 300m radius.
     """
     try:
         # Get user's organization
@@ -382,10 +382,10 @@ async def set_geofence(
                 status_code=status.HTTP_400_BAD_REQUEST
             )
         
-        # Set geofence with 20m radius
+        # Set geofence with 300m radius
         organization.geofence_latitude = Decimal(str(request.latitude))
         organization.geofence_longitude = Decimal(str(request.longitude))
-        organization.geofence_radius = Decimal("20.00")  # 20 meters
+        organization.geofence_radius = Decimal("300.00")  # 300 meters
         
         db.commit()
         db.refresh(organization)
@@ -410,7 +410,7 @@ async def set_geofence(
         )
         
         return success_response(
-            message="Geofence set successfully with 20m radius",
+            message="Geofence set successfully with 300m radius",
             data=response_data.model_dump(),
             status_code=status.HTTP_200_OK
         )

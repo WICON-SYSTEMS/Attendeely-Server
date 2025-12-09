@@ -70,4 +70,6 @@ class Employee(Base):
     notifications = relationship("Notification", back_populates="employee", cascade="all, delete-orphan")
     # Payroll records
     payroll_records = relationship("PayrollRecord", back_populates="employee", cascade="all, delete-orphan")
+    # Feedback
+    feedback = relationship("Feedback", back_populates="employee", cascade="all, delete-orphan")
 

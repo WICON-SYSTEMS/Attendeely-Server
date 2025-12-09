@@ -3,6 +3,7 @@ import cloudinary.uploader
 from app.core.config import settings
 import logging
 from typing import Optional
+from uuid import UUID
 import base64
 import io
 
@@ -146,3 +147,38 @@ class CloudinaryService:
         except Exception as e:
             logger.error(f"Failed to delete employee photo: {str(e)}")
             return False
+
+    @staticmethod
+    async def upload_feedback_image(file_content: bytes, filename: str, feedback_id: UUID) -> Optional[str]:
+        """
+        Upload feedback image to Cloudinary
+        
+        Args:
+            file_content: File content as bytes
+            filename: Original filename
+            feedback_id: Feedback ID for folder structure
+            
+        Returns:
+            str: URL of uploaded image or None if failed
+        """
+        try:
+            # Upload to Cloudinary
+            result = cloudinary.uploader.upload(
+                file_content,
+                folder=f"attendeely/feedback/{feedback_id}",
+                public_id=f"image_{feedback_id}",
+                overwrite=True,
+                resource_type="image",
+                transformation=[
+                    {'width': 1200, 'height': 1200, 'crop': 'limit'},
+                    {'quality': 'auto'},
+                    {'fetch_format': 'auto'}
+                ]
+            )
+            
+            logger.info(f"Feedback image uploaded successfully for feedback {feedback_id}")
+            return result.get('secure_url')
+            
+        except Exception as e:
+            logger.error(f"Failed to upload feedback image for feedback {feedback_id}: {str(e)}")
+            return None

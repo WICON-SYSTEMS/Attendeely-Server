@@ -22,3 +22,4 @@ class User(Base):
     otps = relationship("OTP", back_populates="user", cascade="all, delete-orphan")
     organization = relationship("Organization", back_populates="admin", uselist=False)
     notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
+    feedback = relationship("Feedback", back_populates="user", cascade="all, delete-orphan")
