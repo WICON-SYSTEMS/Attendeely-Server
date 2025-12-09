@@ -1,6 +1,8 @@
 from datetime import datetime, date, time, timedelta
+from calendar import monthrange
 from typing import List, Optional
 from uuid import UUID
+import logging
 
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import func, distinct, or_
@@ -13,10 +15,17 @@ from app.models.employee import Employee
 from app.models.leave_request import LeaveRequest, LeaveRequestStatus
 from app.models.organization import Organization
 from app.models.user import User
-from app.schemas.attendance import AttendanceDashboardResponse, DailyAttendanceDetailResponse
+from app.schemas.attendance import (
+    AttendanceDashboardResponse,
+    DailyAttendanceDetailResponse,
+    MonthlyAttendanceSummaryResponse,
+    EmployeeMonthlyAttendanceSummary,
+    MonthlyAttendanceDayDetail
+)
 from app.schemas.response import success_response, error_response
 
 router = APIRouter(prefix="/attendance", tags=["Attendance Tracking"])
+logger = logging.getLogger(__name__)
 
 LATE_THRESHOLD = time(hour=9, minute=15)  # default 9:15 AM cutoff for lateness
 
@@ -38,6 +47,16 @@ def _get_day_bounds(target_date: date) -> tuple[datetime, datetime]:
     return (
         datetime.combine(target_date, datetime.min.time()),
         datetime.combine(target_date, datetime.max.time()),
+    )
+
+
+def _get_month_bounds(year: int, month: int) -> tuple[datetime, datetime]:
+    """Get start and end datetime bounds for a given month."""
+    first_day = date(year, month, 1)
+    last_day = date(year, month, monthrange(year, month)[1])
+    return (
+        datetime.combine(first_day, datetime.min.time()),
+        datetime.combine(last_day, datetime.max.time()),
     )
 
 
@@ -275,6 +294,244 @@ async def get_daily_attendance(
     except Exception as exc:
         return error_response(
             message="Unable to load daily attendance",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@router.get("/monthly-summary", status_code=status.HTTP_200_OK)
+async def get_monthly_attendance_summary(
+    month: int = Query(..., ge=1, le=12, description="Month (1-12)"),
+    year: int = Query(..., ge=2000, le=2100, description="Year (YYYY)"),
+    employee_id: Optional[UUID] = Query(None, description="Optional employee ID to filter by specific employee"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get monthly attendance history/summary for all employees or a specific employee.
+    Returns daily attendance records, totals, and statistics for the specified month.
+    """
+    try:
+        organization = _get_admin_organization(db, current_user)
+        month_start, month_end = _get_month_bounds(year, month)
+        
+        # Build employee query
+        employee_query = db.query(Employee).filter(
+            Employee.organization_id == organization.id,
+            Employee.is_active == True,  # noqa: E712
+            Employee.joining_date <= month_end.date()  # Only employees who joined before/on this month
+        )
+        
+        # Filter by specific employee if provided
+        if employee_id:
+            employee_query = employee_query.filter(Employee.id == employee_id)
+            if not employee_query.first():
+                return error_response(
+                    message="Employee not found or does not belong to your organization",
+                    status_code=status.HTTP_404_NOT_FOUND
+                )
+        
+        employees = employee_query.all()
+        
+        if not employees:
+            return success_response(
+                message="No employees found for the specified criteria",
+                data={
+                    "month": month,
+                    "year": year,
+                    "employees": [],
+                    "total_employees": 0
+                },
+                status_code=status.HTTP_200_OK
+            )
+        
+        # Get all leave requests for the month
+        leave_requests = db.query(LeaveRequest).join(
+            Employee, LeaveRequest.employee_id == Employee.id
+        ).filter(
+            Employee.organization_id == organization.id,
+            LeaveRequest.status == LeaveRequestStatus.APPROVED,
+            LeaveRequest.start_date <= month_end.date(),
+            LeaveRequest.end_date >= month_start.date()
+        ).all()
+        
+        # Build leave map: employee_id -> set of dates on leave
+        leave_map = {}
+        for leave in leave_requests:
+            if leave.employee_id not in leave_map:
+                leave_map[leave.employee_id] = set()
+            # Add all dates in the leave range that fall within the month
+            leave_start = max(leave.start_date, month_start.date())
+            leave_end = min(leave.end_date, month_end.date())
+            current_date = leave_start
+            while current_date <= leave_end:
+                leave_map[leave.employee_id].add(current_date)
+                current_date += timedelta(days=1)
+        
+        # Get all attendance records for the month
+        attendance_query = db.query(Attendance).join(
+            Employee, Attendance.employee_id == Employee.id
+        ).filter(
+            Employee.organization_id == organization.id,
+            Attendance.timestamp >= month_start,
+            Attendance.timestamp <= month_end
+        )
+        
+        if employee_id:
+            attendance_query = attendance_query.filter(Attendance.employee_id == employee_id)
+        
+        attendances = attendance_query.order_by(Attendance.timestamp).all()
+        
+        # Organize attendance by employee and date
+        # Structure: {employee_id: {date: {'check_in': ..., 'check_out': ..., 'hours': ...}}}
+        attendance_by_employee = {}
+        
+        for att in attendances:
+            emp_id = att.employee_id
+            att_date = att.timestamp.date()
+            
+            if emp_id not in attendance_by_employee:
+                attendance_by_employee[emp_id] = {}
+            
+            if att_date not in attendance_by_employee[emp_id]:
+                attendance_by_employee[emp_id][att_date] = {
+                    'check_in': None,
+                    'check_out': None,
+                    'check_in_lat': None,
+                    'check_in_lon': None,
+                    'check_out_lat': None,
+                    'check_out_lon': None,
+                    'hours_worked': None
+                }
+            
+            if att.attendance_type == AttendanceType.CHECK_IN:
+                # Use earliest check-in for the day
+                if (attendance_by_employee[emp_id][att_date]['check_in'] is None or
+                    att.timestamp < attendance_by_employee[emp_id][att_date]['check_in']):
+                    attendance_by_employee[emp_id][att_date]['check_in'] = att.timestamp
+                    attendance_by_employee[emp_id][att_date]['check_in_lat'] = att.location_latitude
+                    attendance_by_employee[emp_id][att_date]['check_in_lon'] = att.location_longitude
+            elif att.attendance_type == AttendanceType.CHECK_OUT:
+                # Use latest check-out for the day
+                if (attendance_by_employee[emp_id][att_date]['check_out'] is None or
+                    att.timestamp > attendance_by_employee[emp_id][att_date]['check_out']):
+                    attendance_by_employee[emp_id][att_date]['check_out'] = att.timestamp
+                    attendance_by_employee[emp_id][att_date]['check_out_lat'] = att.location_latitude
+                    attendance_by_employee[emp_id][att_date]['check_out_lon'] = att.location_longitude
+                    attendance_by_employee[emp_id][att_date]['hours_worked'] = float(att.hours_worked) if att.hours_worked else None
+        
+        # Build response for each employee
+        employee_summaries = []
+        
+        for employee in employees:
+            emp_id = employee.id
+            emp_attendance = attendance_by_employee.get(emp_id, {})
+            emp_leaves = leave_map.get(emp_id, set())
+            
+            # Calculate statistics
+            total_days_worked = 0
+            total_hours_worked = 0.0
+            late_arrivals = 0
+            absent_days = 0
+            daily_records = []
+            
+            # Iterate through all days in the month
+            current_date = month_start.date()
+            while current_date <= month_end.date():
+                # Skip if employee joined after this date
+                if employee.joining_date > current_date:
+                    current_date += timedelta(days=1)
+                    continue
+                
+                day_attendance = emp_attendance.get(current_date)
+                is_on_leave = current_date in emp_leaves
+                
+                check_in_time = None
+                check_out_time = None
+                hours_worked = None
+                check_in_lat = None
+                check_in_lon = None
+                check_out_lat = None
+                check_out_lon = None
+                status_value = "absent"
+                
+                if day_attendance:
+                    check_in_time = day_attendance['check_in']
+                    check_out_time = day_attendance['check_out']
+                    hours_worked = day_attendance['hours_worked']
+                    check_in_lat = day_attendance['check_in_lat']
+                    check_in_lon = day_attendance['check_in_lon']
+                    check_out_lat = day_attendance['check_out_lat']
+                    check_out_lon = day_attendance['check_out_lon']
+                
+                if is_on_leave:
+                    status_value = "absent"  # On leave is considered absent for attendance purposes
+                    absent_days += 1
+                elif check_in_time is None:
+                    status_value = "absent"
+                    absent_days += 1
+                else:
+                    total_days_worked += 1
+                    if hours_worked:
+                        total_hours_worked += hours_worked
+                    
+                    if check_in_time.time() > LATE_THRESHOLD:
+                        status_value = "late"
+                        late_arrivals += 1
+                    else:
+                        status_value = "present"
+                
+                daily_records.append(MonthlyAttendanceDayDetail(
+                    date=current_date,
+                    check_in_time=check_in_time,
+                    check_out_time=check_out_time,
+                    hours_worked=hours_worked,
+                    status=status_value,
+                    check_in_latitude=check_in_lat,
+                    check_in_longitude=check_in_lon,
+                    check_out_latitude=check_out_lat,
+                    check_out_longitude=check_out_lon
+                ))
+                
+                current_date += timedelta(days=1)
+            
+            employee_summaries.append(EmployeeMonthlyAttendanceSummary(
+                employee_id=emp_id,
+                employee_name=employee.full_name,
+                employee_code=employee.employee_code,
+                department=employee.department,
+                job_title=employee.job_title,
+                total_days_worked=total_days_worked,
+                total_hours_worked=round(total_hours_worked, 2),
+                late_arrivals=late_arrivals,
+                absent_days=absent_days,
+                daily_records=daily_records
+            ))
+        
+        # Sort by employee name
+        employee_summaries.sort(key=lambda x: x.employee_name)
+        
+        response_data = MonthlyAttendanceSummaryResponse(
+            month=month,
+            year=year,
+            employees=employee_summaries,
+            total_employees=len(employee_summaries)
+        )
+        
+        return success_response(
+            message=f"Monthly attendance summary loaded for {year}-{month:02d}",
+            data=response_data.model_dump(),
+            status_code=status.HTTP_200_OK
+        )
+        
+    except ValueError as exc:
+        return error_response(
+            message=str(exc),
+            status_code=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as exc:
+        logger.error(f"Monthly attendance summary error: {str(exc)}", exc_info=True)
+        return error_response(
+            message="Unable to load monthly attendance summary",
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 

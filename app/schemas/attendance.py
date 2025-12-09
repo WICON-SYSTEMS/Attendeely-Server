@@ -123,3 +123,38 @@ class DailyAttendanceDetailResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
+class MonthlyAttendanceDayDetail(BaseModel):
+    """Response schema for a single day's attendance in monthly summary"""
+    date: date
+    check_in_time: Optional[datetime] = None
+    check_out_time: Optional[datetime] = None
+    hours_worked: Optional[float] = None
+    status: str  # "late", "present", or "absent"
+    check_in_latitude: Optional[str] = None
+    check_in_longitude: Optional[str] = None
+    check_out_latitude: Optional[str] = None
+    check_out_longitude: Optional[str] = None
+
+
+class EmployeeMonthlyAttendanceSummary(BaseModel):
+    """Response schema for an employee's monthly attendance summary"""
+    employee_id: UUID
+    employee_name: str
+    employee_code: str
+    department: str
+    job_title: str
+    total_days_worked: int
+    total_hours_worked: float
+    late_arrivals: int
+    absent_days: int
+    daily_records: list[MonthlyAttendanceDayDetail]
+
+
+class MonthlyAttendanceSummaryResponse(BaseModel):
+    """Response schema for monthly attendance summary"""
+    month: int
+    year: int
+    employees: list[EmployeeMonthlyAttendanceSummary]
+    total_employees: int
+
