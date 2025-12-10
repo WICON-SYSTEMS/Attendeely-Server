@@ -26,15 +26,11 @@ class SubscriptionResponse(BaseModel):
 class SubscriptionUpdateRequest(BaseModel):
     """Request schema for updating subscription"""
     plan: str = Field(..., description="New plan: Free, Standard, or Enterprise")
-    monthly_price: Optional[float] = Field(None, description="Monthly price in organization currency")
-    subscription_end_date: Optional[datetime] = Field(None, description="Subscription end date")
     
     class Config:
         json_schema_extra = {
             "example": {
-                "plan": "Standard",
-                "monthly_price": 49.00,
-                "subscription_end_date": "2025-12-31T23:59:59"
+                "plan": "Standard"
             }
         }
 

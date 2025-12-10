@@ -9,6 +9,7 @@ from app.core.dependencies import get_current_user
 from app.core.subscription_access import get_organization_subscription
 from app.models.organization import Organization
 from app.models.subscription import Subscription, SubscriptionPlan, SubscriptionStatus
+from app.models.employee import Employee
 from app.models.user import User
 from app.schemas.subscription import (
     SubscriptionResponse,
@@ -124,21 +125,22 @@ async def update_subscription(
         if subscription.status in [SubscriptionStatus.TRIAL, SubscriptionStatus.EXPIRED]:
             subscription.status = SubscriptionStatus.ACTIVE
             subscription.subscription_start_date = datetime.utcnow()
-            # Set end date to 30 days from now (or use request data if provided)
-            if request.subscription_end_date:
-                subscription.subscription_end_date = request.subscription_end_date
-            else:
-                subscription.subscription_end_date = datetime.utcnow() + timedelta(days=30)
-        
-        # Update price if provided
-        if request.monthly_price is not None:
-            subscription.monthly_price = request.monthly_price
+            # Set end date to 30 days from now
+            subscription.subscription_end_date = datetime.utcnow() + timedelta(days=30)
         
         # Update organization plan field for backward compatibility
         organization.plan = new_plan.value
         
         db.commit()
         db.refresh(subscription)
+        
+        # Recompute counts and limits
+        current_employee_count = db.query(Employee).filter(
+            Employee.organization_id == organization.id,
+            Employee.is_active == True  # noqa: E712
+        ).count()
+        employee_limit = get_employee_limit(subscription.plan)
+        employee_limit_str = "Unlimited" if employee_limit == -1 else str(employee_limit)
         
         # Get updated features
         features = get_plan_features(subscription.plan)
@@ -152,8 +154,8 @@ async def update_subscription(
             subscription_start_date=subscription.subscription_start_date,
             subscription_end_date=subscription.subscription_end_date,
             monthly_price=float(subscription.monthly_price) if subscription.monthly_price else None,
-            current_employee_count=0,  # Will be calculated in response
-            employee_limit=str(get_employee_limit(subscription.plan)) if get_employee_limit(subscription.plan) != -1 else "Unlimited",
+            current_employee_count=current_employee_count,
+            employee_limit=employee_limit_str,
             features=list(features),
             is_trial=False,
             trial_days_remaining=None

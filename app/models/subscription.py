@@ -25,8 +25,25 @@ class Subscription(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, unique=True, index=True)
-    plan = Column(SQLEnum(SubscriptionPlan), nullable=False, default=SubscriptionPlan.FREE)
-    status = Column(SQLEnum(SubscriptionStatus), nullable=False, default=SubscriptionStatus.TRIAL)
+    # Explicitly use enum values (e.value) to align with DB enum definitions
+    plan = Column(
+        SQLEnum(
+            SubscriptionPlan,
+            name="subscriptionplan",
+            values_callable=lambda enum: [e.value for e in enum]
+        ),
+        nullable=False,
+        default=SubscriptionPlan.FREE,
+    )
+    status = Column(
+        SQLEnum(
+            SubscriptionStatus,
+            name="subscriptionstatus",
+            values_callable=lambda enum: [e.value for e in enum]
+        ),
+        nullable=False,
+        default=SubscriptionStatus.TRIAL,
+    )
     trial_start_date = Column(DateTime, nullable=True)
     trial_end_date = Column(DateTime, nullable=True)
     subscription_start_date = Column(DateTime, nullable=True)

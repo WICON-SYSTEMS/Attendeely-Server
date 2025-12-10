@@ -45,12 +45,12 @@ async def get_organization_subscription(
     
     # Create default subscription if none exists
     if not subscription:
-        from app.models.subscription import Subscription
         trial_end = datetime.utcnow() + timedelta(days=7)
+        # Use enum values explicitly to match DB enum ('Free', 'Standard', 'Enterprise')
         subscription = Subscription(
             organization_id=organization.id,
-            plan=SubscriptionPlan.FREE,
-            status=SubscriptionStatus.TRIAL,
+            plan=SubscriptionPlan.FREE.value,
+            status=SubscriptionStatus.TRIAL.value,
             trial_start_date=datetime.utcnow(),
             trial_end_date=trial_end
         )
