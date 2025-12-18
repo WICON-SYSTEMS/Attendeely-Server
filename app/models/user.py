@@ -11,6 +11,8 @@ class User(Base):
     full_name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
+    # Super admin flag (can manage all organizations)
+    is_super_admin = Column(Boolean, default=False, nullable=False)
     is_email_verified = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
     reset_token = Column(String, nullable=True)

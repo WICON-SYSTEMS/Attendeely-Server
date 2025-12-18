@@ -158,3 +158,17 @@ async def get_current_employee(
         )
     
     return employee
+
+
+async def get_current_super_admin(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """
+    Ensure the current user is a super admin.
+    """
+    if not getattr(current_user, "is_super_admin", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super admin access required",
+        )
+    return current_user
