@@ -7,15 +7,27 @@ import logging
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.subscription_access import get_organization_subscription
+from app.services.fapshi_service import FapshiService
+from decimal import Decimal
 from app.models.organization import Organization
-from app.models.subscription import Subscription, SubscriptionPlanEnum, SubscriptionStatus
+from app.models.subscription import (
+    Subscription,
+    SubscriptionPlan,
+    SubscriptionPlanEnum,
+    SubscriptionStatus,
+    Payment,
+    PaymentStatus,
+    PaymentProvider,
+)
 from app.models.employee import Employee
 from app.models.user import User
 from app.schemas.subscription import (
     SubscriptionResponse,
     SubscriptionUpdateRequest,
     PlanFeaturesResponse,
-    AllPlansResponse
+    AllPlansResponse,
+    SubscribeRequest,
+    PaymentInitiationResponse,
 )
 from app.schemas.response import success_response, error_response
 from app.utils.subscription_features import (
@@ -224,6 +236,171 @@ async def get_all_plans(
         logger.error(f"Get plans error: {str(e)}")
         return error_response(
             message="An error occurred while retrieving plans.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@router.post("/subscribe", status_code=status.HTTP_201_CREATED)
+async def subscribe_to_plan(
+    request: SubscribeRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Subscribe to a subscription plan (first payment flow).
+    Creates a pending subscription and initiates payment via Fapshi.
+    """
+    try:
+        # Get user's organization
+        organization = db.query(Organization).filter(
+            Organization.admin_id == current_user.id
+        ).first()
+        
+        if not organization:
+            return error_response(
+                message="Organization not found. Please create an organization first.",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Check if subscription already exists
+        existing_subscription = db.query(Subscription).filter(
+            Subscription.organization_id == organization.id
+        ).first()
+        
+        if existing_subscription and existing_subscription.status == SubscriptionStatus.ACTIVE:
+            return error_response(
+                message="You already have an active subscription. Please update your existing subscription instead.",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate plan exists and is active
+        plan = db.query(SubscriptionPlan).filter(
+            SubscriptionPlan.id == request.plan_id,
+            SubscriptionPlan.is_active == True  # noqa: E712
+        ).first()
+        
+        if not plan:
+            return error_response(
+                message="Invalid or inactive subscription plan.",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Calculate amount in smallest currency unit (e.g., cents for XAF)
+        # Fapshi expects amount in smallest unit, so multiply by 100 for XAF
+        amount_in_smallest_unit = int(float(plan.amount) * 100)
+        
+        # Create or update subscription with status = pending
+        if existing_subscription:
+            # Update existing subscription
+            subscription = existing_subscription
+            subscription.plan_id = plan.id
+            subscription.status = SubscriptionStatus.PENDING
+            subscription.start_date = None  # Will be set when payment is confirmed
+            subscription.next_billing_date = None  # Will be set when payment is confirmed
+            subscription.last_paid_date = None
+            subscription.grace_ends_at = None
+            # Update legacy plan field for backward compatibility
+            subscription.plan = SubscriptionPlanEnum.FREE  # Default, will be updated based on plan name
+            subscription.monthly_price = plan.amount
+        else:
+            # Create new subscription
+            subscription = Subscription(
+                organization_id=organization.id,
+                plan_id=plan.id,
+                status=SubscriptionStatus.PENDING,
+                start_date=None,
+                next_billing_date=None,
+                last_paid_date=None,
+                grace_ends_at=None,
+                plan=SubscriptionPlanEnum.FREE,  # Default, will be updated based on plan name
+                monthly_price=plan.amount,
+                is_active=True
+            )
+            db.add(subscription)
+        
+        db.flush()  # Flush to get subscription.id
+        
+        # Prepare payment initiation data
+        payment_name = request.name or current_user.full_name
+        payment_message = request.message or f"Subscription payment for {plan.name} plan"
+        
+        # Initiate payment via Fapshi
+        fapshi_response = FapshiService.initiate_payment(
+            amount=amount_in_smallest_unit,
+            phone=request.phone,
+            email=current_user.email,
+            name=payment_name,
+            external_id=str(subscription.id),  # Use subscription ID as external ID
+            medium="mobile money",
+            message=payment_message,
+            user_id=str(current_user.id)
+        )
+        
+        # Check if payment initiation was successful
+        if "transId" not in fapshi_response:
+            # Payment initiation failed
+            error_msg = fapshi_response.get("message", "Failed to initiate payment")
+            logger.error(f"Fapshi payment initiation failed: {error_msg} - subscription_id={subscription.id}")
+            
+            # Rollback subscription creation
+            db.rollback()
+            
+            return error_response(
+                message=f"Payment initiation failed: {error_msg}",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Create payment record with status = initiated
+        payment = Payment(
+            user_id=current_user.id,
+            subscription_id=subscription.id,
+            amount=plan.amount,
+            currency=plan.currency,
+            status=PaymentStatus.INITIATED,
+            provider=PaymentProvider.FAPSHI,
+            provider_ref=fapshi_response.get("transId"),
+            provider_response=str(fapshi_response)  # Store full response as string
+        )
+        db.add(payment)
+        
+        # Commit all changes
+        db.commit()
+        db.refresh(subscription)
+        db.refresh(payment)
+        
+        # Prepare response
+        response_data = PaymentInitiationResponse(
+            trans_id=fapshi_response.get("transId"),
+            message=fapshi_response.get("message", "Payment initiated successfully"),
+            date_initiated=fapshi_response.get("dateInitiated"),
+            subscription_id=subscription.id,
+            amount=float(plan.amount),
+            currency=plan.currency,
+            status=PaymentStatus.INITIATED.value
+        )
+        
+        logger.info(f"Subscription created and payment initiated: subscription_id={subscription.id}, trans_id={fapshi_response.get('transId')}")
+        
+        return success_response(
+            message="Subscription created and payment initiated successfully",
+            data=response_data.model_dump(),
+            status_code=status.HTTP_201_CREATED
+        )
+        
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.error(f"Validation error in subscribe: {str(e)}")
+        db.rollback()
+        return error_response(
+            message=str(e),
+            status_code=status.HTTP_400_BAD_REQUEST
+        )
+    except Exception as e:
+        logger.error(f"Subscribe error: {str(e)}", exc_info=True)
+        db.rollback()
+        return error_response(
+            message="An error occurred while processing your subscription.",
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 

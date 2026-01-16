@@ -47,3 +47,32 @@ class AllPlansResponse(BaseModel):
     """Response schema for all plans"""
     plans: List[PlanFeaturesResponse]
 
+
+class SubscribeRequest(BaseModel):
+    """Request schema for subscribing to a plan"""
+    plan_id: int = Field(..., description="ID of the subscription plan to subscribe to")
+    phone: str = Field(..., description="Phone number for payment (mobile money)")
+    name: Optional[str] = Field(None, description="Name for payment (defaults to user's full name)")
+    message: Optional[str] = Field(None, description="Optional payment message")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "plan_id": 1,
+                "phone": "+237612345678",
+                "name": "John Doe",
+                "message": "Monthly subscription payment"
+            }
+        }
+
+
+class PaymentInitiationResponse(BaseModel):
+    """Response schema for payment initiation"""
+    trans_id: Optional[str] = Field(None, description="Fapshi transaction ID")
+    message: str = Field(..., description="Payment initiation message")
+    date_initiated: Optional[str] = Field(None, description="Date payment was initiated")
+    subscription_id: int = Field(..., description="ID of the created subscription")
+    amount: float = Field(..., description="Payment amount")
+    currency: str = Field(..., description="Payment currency")
+    status: str = Field(..., description="Payment status (initiated)")
+
