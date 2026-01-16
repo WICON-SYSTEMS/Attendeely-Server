@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.organization import Organization
-from app.models.subscription import Subscription, SubscriptionPlan, SubscriptionStatus
+from app.models.subscription import Subscription, SubscriptionPlanEnum, SubscriptionStatus
 from app.models.user import User
 from app.utils.subscription_features import (
     has_feature,
@@ -49,7 +49,7 @@ async def get_organization_subscription(
         # Use enum values explicitly to match DB enum ('Free', 'Standard', 'Enterprise')
         subscription = Subscription(
             organization_id=organization.id,
-            plan=SubscriptionPlan.FREE.value,
+            plan=SubscriptionPlanEnum.FREE.value,
             status=SubscriptionStatus.TRIAL.value,
             trial_start_date=datetime.utcnow(),
             trial_end_date=trial_end

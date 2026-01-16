@@ -1,8 +1,8 @@
 """
 Feature access definitions for subscription plans
 """
-from app.models.subscription import SubscriptionPlan
-from typing import Dict, Set
+from app.models.subscription import SubscriptionPlanEnum
+from typing import Dict, Set, Union
 from datetime import datetime, timedelta
 
 
@@ -25,13 +25,13 @@ class Feature:
 
 
 # Plan features mapping
-PLAN_FEATURES: Dict[SubscriptionPlan, Set[str]] = {
-    SubscriptionPlan.FREE: {
+PLAN_FEATURES: Dict[SubscriptionPlanEnum, Set[str]] = {
+    SubscriptionPlanEnum.FREE: {
         Feature.BASIC_ATTENDANCE_TRACKING,
         Feature.MONTHLY_PAYROLL_REPORTS,
         Feature.EMAIL_SUPPORT,
     },
-    SubscriptionPlan.STANDARD: {
+    SubscriptionPlanEnum.STANDARD: {
         Feature.BASIC_ATTENDANCE_TRACKING,
         Feature.ADVANCED_ATTENDANCE_TRACKING,
         Feature.AUTOMATED_PAYROLL_PROCESSING,
@@ -40,7 +40,7 @@ PLAN_FEATURES: Dict[SubscriptionPlan, Set[str]] = {
         Feature.PRIORITY_SUPPORT,
         Feature.EMAIL_SUPPORT,
     },
-    SubscriptionPlan.ENTERPRISE: {
+    SubscriptionPlanEnum.ENTERPRISE: {
         Feature.BASIC_ATTENDANCE_TRACKING,
         Feature.ADVANCED_ATTENDANCE_TRACKING,
         Feature.AUTOMATED_PAYROLL_PROCESSING,
@@ -57,33 +57,51 @@ PLAN_FEATURES: Dict[SubscriptionPlan, Set[str]] = {
 }
 
 # Employee limits per plan
-EMPLOYEE_LIMITS: Dict[SubscriptionPlan, int] = {
-    SubscriptionPlan.FREE: 10,
-    SubscriptionPlan.STANDARD: 100,
-    SubscriptionPlan.ENTERPRISE: -1,  # -1 means unlimited
+EMPLOYEE_LIMITS: Dict[SubscriptionPlanEnum, int] = {
+    SubscriptionPlanEnum.FREE: 10,
+    SubscriptionPlanEnum.STANDARD: 100,
+    SubscriptionPlanEnum.ENTERPRISE: -1,  # -1 means unlimited
 }
 
 # Trial period in days
 TRIAL_PERIOD_DAYS = 7
 
 
-def get_plan_features(plan: SubscriptionPlan) -> Set[str]:
+def _normalize_plan(plan: Union[SubscriptionPlanEnum, str]) -> SubscriptionPlanEnum:
+    """Convert plan string or enum to SubscriptionPlanEnum"""
+    if isinstance(plan, SubscriptionPlanEnum):
+        return plan
+    if isinstance(plan, str):
+        try:
+            return SubscriptionPlanEnum(plan)
+        except ValueError:
+            # Try to match by value
+            for enum_value in SubscriptionPlanEnum:
+                if enum_value.value == plan:
+                    return enum_value
+            raise ValueError(f"Invalid plan: {plan}")
+    raise TypeError(f"Plan must be SubscriptionPlanEnum or str, got {type(plan)}")
+
+
+def get_plan_features(plan: Union[SubscriptionPlanEnum, str]) -> Set[str]:
     """Get features available for a given plan"""
-    return PLAN_FEATURES.get(plan, set())
+    normalized_plan = _normalize_plan(plan)
+    return PLAN_FEATURES.get(normalized_plan, set())
 
 
-def has_feature(plan: SubscriptionPlan, feature: str) -> bool:
+def has_feature(plan: Union[SubscriptionPlanEnum, str], feature: str) -> bool:
     """Check if a plan has access to a specific feature"""
     features = get_plan_features(plan)
     return feature in features
 
 
-def get_employee_limit(plan: SubscriptionPlan) -> int:
+def get_employee_limit(plan: Union[SubscriptionPlanEnum, str]) -> int:
     """Get the employee limit for a given plan"""
-    return EMPLOYEE_LIMITS.get(plan, 0)
+    normalized_plan = _normalize_plan(plan)
+    return EMPLOYEE_LIMITS.get(normalized_plan, 0)
 
 
-def is_within_employee_limit(plan: SubscriptionPlan, current_count: int) -> bool:
+def is_within_employee_limit(plan: Union[SubscriptionPlanEnum, str], current_count: int) -> bool:
     """Check if current employee count is within plan limit"""
     limit = get_employee_limit(plan)
     if limit == -1:  # Unlimited

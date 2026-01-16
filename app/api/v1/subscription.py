@@ -8,7 +8,7 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.subscription_access import get_organization_subscription
 from app.models.organization import Organization
-from app.models.subscription import Subscription, SubscriptionPlan, SubscriptionStatus
+from app.models.subscription import Subscription, SubscriptionPlanEnum, SubscriptionStatus
 from app.models.employee import Employee
 from app.models.user import User
 from app.schemas.subscription import (
@@ -111,10 +111,10 @@ async def update_subscription(
         
         # Validate new plan
         try:
-            new_plan = SubscriptionPlan(request.plan)
+            new_plan = SubscriptionPlanEnum(request.plan)
         except ValueError:
             return error_response(
-                message=f"Invalid plan. Must be one of: {[p.value for p in SubscriptionPlan]}",
+                message=f"Invalid plan. Must be one of: {[p.value for p in SubscriptionPlanEnum]}",
                 status_code=status.HTTP_400_BAD_REQUEST
             )
         

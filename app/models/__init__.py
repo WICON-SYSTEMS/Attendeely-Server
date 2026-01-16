@@ -10,8 +10,8 @@ from app.models.payroll import PayrollRecord
 from app.models.feedback import Feedback
 from app.models.subscription import (
     Subscription,
-    SubscriptionPlan,
-    SubscriptionPlanEnum,
+    SubscriptionPlan,  # Table model class
+    SubscriptionPlanEnum,  # Enum class
     SubscriptionStatus,
     Payment,
     PaymentStatus,
