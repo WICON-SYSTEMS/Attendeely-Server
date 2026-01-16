@@ -21,6 +21,9 @@ from app.models import (
     LeaveRequest,
     Notification,
     PayrollRecord,
+    Subscription,
+    SubscriptionPlan,
+    Payment,
 )
 
 # this is the Alembic Config object, which provides

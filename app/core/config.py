@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 
 
@@ -29,9 +29,15 @@ class Settings(BaseSettings):
     # OTP
     OTP_EXPIRY_MINUTES: int = 10
     
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    # Payment (Fapshi) - optional for now
+    API_USER: Optional[str] = None
+    API_KEY: Optional[str] = None
+    
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=True,
+        extra="ignore"  # Ignore extra fields in .env file
+    )
 
 
 settings = Settings()
