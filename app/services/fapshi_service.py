@@ -55,7 +55,7 @@ class FapshiService:
         Initiate a payment via Fapshi direct-pay
         
         Args:
-            amount: Payment amount in smallest currency unit (e.g., cents for XAF)
+            amount: Payment amount in base currency unit (e.g., XAF, not cents)
             phone: Customer phone number
             email: Customer email
             name: Customer name

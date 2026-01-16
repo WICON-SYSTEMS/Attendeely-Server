@@ -37,10 +37,18 @@ class SubscriptionUpdateRequest(BaseModel):
 
 class PlanFeaturesResponse(BaseModel):
     """Response schema for plan features"""
-    plan: str
+    id: int  # Plan ID from database
+    name: str  # Plan name (e.g., "Free", "Standard", "Enterprise")
+    amount: float  # Plan amount
+    currency: str  # Currency code (e.g., "XAF")
+    interval: str  # Billing interval (e.g., "monthly")
+    description: Optional[str] = None
     employee_limit: Optional[int] = None  # None means unlimited
     features: List[str]
     is_current_plan: bool = False
+    
+    class Config:
+        from_attributes = True
 
 
 class AllPlansResponse(BaseModel):
@@ -75,4 +83,14 @@ class PaymentInitiationResponse(BaseModel):
     amount: float = Field(..., description="Payment amount")
     currency: str = Field(..., description="Payment currency")
     status: str = Field(..., description="Payment status (initiated)")
+
+
+class FapshiWebhookRequest(BaseModel):
+    """Webhook request schema from Fapshi"""
+    transId: str = Field(..., description="Fapshi transaction ID")
+    externalId: Optional[str] = Field(None, description="External ID (subscription_id)")
+    status: str = Field(..., description="Payment status: success, failed, etc.")
+    amount: Optional[float] = Field(None, description="Payment amount")
+    message: Optional[str] = Field(None, description="Status message")
+    datePaid: Optional[str] = Field(None, description="Date payment was completed")
 

@@ -28,6 +28,7 @@ from app.schemas.subscription import (
     AllPlansResponse,
     SubscribeRequest,
     PaymentInitiationResponse,
+    FapshiWebhookRequest,
 )
 from app.schemas.response import success_response, error_response
 from app.utils.subscription_features import (
@@ -52,6 +53,14 @@ async def get_current_subscription(
     """
     try:
         organization, subscription = await get_organization_subscription(current_user, db)
+        
+        # Check if subscription has expired and update status if needed
+        if subscription.status == SubscriptionStatus.ACTIVE and subscription.subscription_end_date:
+            if datetime.utcnow() > subscription.subscription_end_date:
+                subscription.status = SubscriptionStatus.EXPIRED
+                subscription.is_active = False
+                db.commit()
+                db.refresh(subscription)
         
         # Get current employee count
         from app.models.employee import Employee
@@ -196,7 +205,8 @@ async def get_all_plans(
     db: Session = Depends(get_db)
 ):
     """
-    Get all available subscription plans with their features and limits.
+    Get all available subscription plans with their features, limits, and pricing.
+    Returns plans from the database with their IDs for frontend to use.
     """
     try:
         # Get current subscription to highlight it
@@ -207,18 +217,43 @@ async def get_all_plans(
         except HTTPException:
             pass  # No organization yet
         
+        # Query active plans from database
+        db_plans = db.query(SubscriptionPlan).filter(
+            SubscriptionPlan.is_active == True  # noqa: E712
+        ).order_by(SubscriptionPlan.amount.asc()).all()
+        
         plans_data = []
-        for plan in SubscriptionPlan:
-            features = get_plan_features(plan)
-            employee_limit = get_employee_limit(plan)
+        for db_plan in db_plans:
+            # Map plan name to enum for feature lookup
+            try:
+                plan_enum = SubscriptionPlanEnum(db_plan.name)
+            except ValueError:
+                # If plan name doesn't match enum, skip feature lookup
+                plan_enum = None
             
-            is_current_plan = (
-                current_subscription and 
-                current_subscription.plan == plan
-            )
+            # Get features and limits from enum-based system
+            if plan_enum:
+                features = get_plan_features(plan_enum)
+                employee_limit = get_employee_limit(plan_enum)
+            else:
+                features = set()
+                employee_limit = None
+            
+            # Check if this is the current plan
+            is_current_plan = False
+            if current_subscription:
+                if current_subscription.plan_id == db_plan.id:
+                    is_current_plan = True
+                elif current_subscription.plan and current_subscription.plan.value == db_plan.name:
+                    is_current_plan = True
             
             plans_data.append(PlanFeaturesResponse(
-                plan=plan.value,
+                id=db_plan.id,
+                name=db_plan.name,
+                amount=float(db_plan.amount),
+                currency=db_plan.currency,
+                interval=db_plan.interval,
+                description=db_plan.description,
                 employee_limit=employee_limit if employee_limit != -1 else None,
                 features=list(features),
                 is_current_plan=is_current_plan
@@ -267,11 +302,27 @@ async def subscribe_to_plan(
             Subscription.organization_id == organization.id
         ).first()
         
-        if existing_subscription and existing_subscription.status == SubscriptionStatus.ACTIVE:
-            return error_response(
-                message="You already have an active subscription. Please update your existing subscription instead.",
-                status_code=status.HTTP_400_BAD_REQUEST
-            )
+        # Check if subscription is truly active (not expired)
+        if existing_subscription:
+            # Check if subscription has expired
+            is_expired = False
+            if existing_subscription.subscription_end_date:
+                is_expired = datetime.utcnow() > existing_subscription.subscription_end_date
+            
+            # If subscription is expired, update status
+            if is_expired and existing_subscription.status == SubscriptionStatus.ACTIVE:
+                existing_subscription.status = SubscriptionStatus.EXPIRED
+                existing_subscription.is_active = False
+                db.commit()
+                db.refresh(existing_subscription)
+            
+            # Only block if subscription is actually active (not expired, cancelled, or pending)
+            # Allow resubscription if expired, cancelled, or pending
+            if existing_subscription.status == SubscriptionStatus.ACTIVE and not is_expired:
+                return error_response(
+                    message="You already have an active subscription. Please update your existing subscription instead.",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
         
         # Validate plan exists and is active
         plan = db.query(SubscriptionPlan).filter(
@@ -285,9 +336,9 @@ async def subscribe_to_plan(
                 status_code=status.HTTP_404_NOT_FOUND
             )
         
-        # Calculate amount in smallest currency unit (e.g., cents for XAF)
-        # Fapshi expects amount in smallest unit, so multiply by 100 for XAF
-        amount_in_smallest_unit = int(float(plan.amount) * 100)
+        # Calculate amount for Fapshi (Fapshi expects amount in base currency, not smallest unit)
+        # For XAF, send the amount directly (e.g., 33000 for 33,000 XAF)
+        amount_for_fapshi = int(float(plan.amount))
         
         # Create or update subscription with status = pending
         if existing_subscription:
@@ -326,7 +377,7 @@ async def subscribe_to_plan(
         
         # Initiate payment via Fapshi
         fapshi_response = FapshiService.initiate_payment(
-            amount=amount_in_smallest_unit,
+            amount=amount_for_fapshi,
             phone=request.phone,
             email=current_user.email,
             name=payment_name,
@@ -401,6 +452,245 @@ async def subscribe_to_plan(
         db.rollback()
         return error_response(
             message="An error occurred while processing your subscription.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@router.post("/cancel", status_code=status.HTTP_200_OK)
+async def cancel_subscription(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Cancel the current active subscription.
+    Sets status to CANCELLED and deactivates the subscription.
+    """
+    try:
+        # Get user's organization and subscription
+        organization = db.query(Organization).filter(
+            Organization.admin_id == current_user.id
+        ).first()
+        
+        if not organization:
+            return error_response(
+                message="Organization not found.",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        
+        subscription = db.query(Subscription).filter(
+            Subscription.organization_id == organization.id
+        ).first()
+        
+        if not subscription:
+            return error_response(
+                message="No subscription found to cancel.",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Check if subscription is already cancelled
+        if subscription.status == SubscriptionStatus.CANCELLED:
+            return error_response(
+                message="Subscription is already cancelled.",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if subscription is already expired
+        if subscription.status == SubscriptionStatus.EXPIRED:
+            return error_response(
+                message="Subscription is already expired. No need to cancel.",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Cancel the subscription
+        subscription.status = SubscriptionStatus.CANCELLED
+        subscription.is_active = False
+        subscription.next_billing_date = None  # Clear next billing date
+        
+        # Update organization plan to Free Trial
+        organization.plan = "Free Trial"
+        
+        db.commit()
+        db.refresh(subscription)
+        
+        logger.info(f"Subscription cancelled: subscription_id={subscription.id}, user_id={current_user.id}")
+        
+        return success_response(
+            message="Subscription cancelled successfully. Your subscription will remain active until the end of the current billing period.",
+            data={
+                "subscription_id": subscription.id,
+                "status": subscription.status.value,
+                "cancelled_at": datetime.utcnow().isoformat()
+            },
+            status_code=status.HTTP_200_OK
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Cancel subscription error: {str(e)}", exc_info=True)
+        db.rollback()
+        return error_response(
+            message="An error occurred while cancelling your subscription.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@router.post("/webhook", status_code=status.HTTP_200_OK)
+async def fapshi_webhook(
+    webhook_data: FapshiWebhookRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Webhook endpoint to receive payment status updates from Fapshi.
+    This endpoint is called by Fapshi when payment status changes.
+    No authentication required (Fapshi calls this directly).
+    """
+    try:
+        logger.info(f"Received Fapshi webhook: transId={webhook_data.transId}, status={webhook_data.status}")
+        
+        # Find payment by provider_ref (transId)
+        payment = db.query(Payment).filter(
+            Payment.provider_ref == webhook_data.transId,
+            Payment.provider == PaymentProvider.FAPSHI
+        ).first()
+        
+        if not payment:
+            logger.warning(f"Payment not found for transId: {webhook_data.transId}")
+            return error_response(
+                message="Payment not found",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Update payment status and response
+        payment.provider_response = str(webhook_data.model_dump())
+        
+        # Handle payment status (Fapshi sends "SUCCESSFUL" in uppercase)
+        status_lower = webhook_data.status.lower()
+        if status_lower in ["success", "successful", "completed", "paid"]:
+            # Payment successful
+            payment.status = PaymentStatus.SUCCESS
+            
+            # Get subscription
+            subscription = db.query(Subscription).filter(
+                Subscription.id == payment.subscription_id
+            ).first()
+            
+            if not subscription:
+                logger.error(f"Subscription not found for payment: payment_id={payment.id}")
+                db.commit()
+                return error_response(
+                    message="Subscription not found",
+                    status_code=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Get plan details
+            plan = db.query(SubscriptionPlan).filter(
+                SubscriptionPlan.id == subscription.plan_id
+            ).first()
+            
+            if not plan:
+                logger.error(f"Plan not found for subscription: subscription_id={subscription.id}")
+                db.commit()
+                return error_response(
+                    message="Plan not found",
+                    status_code=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Activate subscription
+            now = datetime.utcnow()
+            
+            # Calculate billing dates based on plan interval
+            if plan.interval == "monthly":
+                next_billing = now + timedelta(days=30)
+            elif plan.interval == "yearly":
+                next_billing = now + timedelta(days=365)
+            else:
+                # Default to monthly
+                next_billing = now + timedelta(days=30)
+            
+            # Update subscription
+            subscription.status = SubscriptionStatus.ACTIVE
+            subscription.start_date = now
+            subscription.next_billing_date = next_billing
+            subscription.last_paid_date = now
+            subscription.subscription_start_date = now
+            subscription.subscription_end_date = next_billing
+            subscription.is_active = True
+            
+            # Update plan enum field based on plan name
+            try:
+                subscription.plan = SubscriptionPlanEnum(plan.name)
+            except ValueError:
+                # If plan name doesn't match enum, keep existing or set to FREE
+                subscription.plan = SubscriptionPlanEnum.FREE
+            
+            # Update organization plan
+            organization = db.query(Organization).filter(
+                Organization.id == subscription.organization_id
+            ).first()
+            
+            if organization:
+                organization.plan = plan.name
+            
+            db.commit()
+            db.refresh(subscription)
+            db.refresh(payment)
+            
+            logger.info(f"Subscription activated: subscription_id={subscription.id}, payment_id={payment.id}, transId={webhook_data.transId}")
+            
+            return success_response(
+                message="Payment confirmed and subscription activated",
+                data={
+                    "payment_id": payment.id,
+                    "subscription_id": subscription.id,
+                    "status": "success"
+                },
+                status_code=status.HTTP_200_OK
+            )
+            
+        elif status_lower in ["failed", "error", "cancelled", "failure"]:
+            # Payment failed
+            payment.status = PaymentStatus.FAILED
+            
+            # Update subscription to keep it as pending or mark as failed
+            subscription = db.query(Subscription).filter(
+                Subscription.id == payment.subscription_id
+            ).first()
+            
+            if subscription and subscription.status == SubscriptionStatus.PENDING:
+                # Keep as pending, user can retry
+                pass
+            
+            db.commit()
+            db.refresh(payment)
+            
+            logger.warning(f"Payment failed: payment_id={payment.id}, transId={webhook_data.transId}")
+            
+            return success_response(
+                message="Payment status updated",
+                data={
+                    "payment_id": payment.id,
+                    "status": "failed"
+                },
+                status_code=status.HTTP_200_OK
+            )
+        
+        else:
+            # Unknown status
+            logger.warning(f"Unknown payment status: {webhook_data.status}, transId={webhook_data.transId}")
+            db.commit()
+            
+            return success_response(
+                message="Webhook received",
+                data={"status": "unknown"},
+                status_code=status.HTTP_200_OK
+            )
+        
+    except Exception as e:
+        logger.error(f"Webhook processing error: {str(e)}", exc_info=True)
+        db.rollback()
+        return error_response(
+            message="An error occurred while processing webhook",
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
