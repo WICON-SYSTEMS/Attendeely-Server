@@ -29,6 +29,7 @@ from app.schemas.subscription import (
     SubscribeRequest,
     PaymentInitiationResponse,
     FapshiWebhookRequest,
+    PaymentStatusResponse,
 )
 from app.schemas.response import success_response, error_response
 from app.utils.subscription_features import (
@@ -691,6 +692,77 @@ async def fapshi_webhook(
         db.rollback()
         return error_response(
             message="An error occurred while processing webhook",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@router.get("/payment-status/{subscription_id}", status_code=status.HTTP_200_OK)
+async def get_payment_status(
+    subscription_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get payment status for a subscription (for frontend polling).
+    Frontend can poll this endpoint to check if payment has been confirmed.
+    """
+    try:
+        # Verify subscription belongs to user's organization
+        organization = db.query(Organization).filter(
+            Organization.admin_id == current_user.id
+        ).first()
+        
+        if not organization:
+            return error_response(
+                message="Organization not found",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        
+        subscription = db.query(Subscription).filter(
+            Subscription.id == subscription_id,
+            Subscription.organization_id == organization.id
+        ).first()
+        
+        if not subscription:
+            return error_response(
+                message="Subscription not found",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get the most recent payment for this subscription
+        payment = db.query(Payment).filter(
+            Payment.subscription_id == subscription_id
+        ).order_by(Payment.created_at.desc()).first()
+        
+        if not payment:
+            return error_response(
+                message="No payment found for this subscription",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        
+        response_data = PaymentStatusResponse(
+            payment_id=payment.id,
+            subscription_id=subscription.id,
+            status=payment.status.value,
+            provider_ref=payment.provider_ref,
+            amount=float(payment.amount),
+            currency=payment.currency,
+            created_at=payment.created_at,
+            updated_at=payment.updated_at
+        )
+        
+        return success_response(
+            message="Payment status retrieved successfully",
+            data=response_data.model_dump(),
+            status_code=status.HTTP_200_OK
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get payment status error: {str(e)}", exc_info=True)
+        return error_response(
+            message="An error occurred while retrieving payment status",
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 

@@ -86,11 +86,28 @@ class PaymentInitiationResponse(BaseModel):
 
 
 class FapshiWebhookRequest(BaseModel):
-    """Webhook request schema from Fapshi"""
-    transId: str = Field(..., description="Fapshi transaction ID")
-    externalId: Optional[str] = Field(None, description="External ID (subscription_id)")
-    status: str = Field(..., description="Payment status: success, failed, etc.")
-    amount: Optional[float] = Field(None, description="Payment amount")
-    message: Optional[str] = Field(None, description="Status message")
-    datePaid: Optional[str] = Field(None, description="Date payment was completed")
+    """Webhook request schema from Fapshi
+    
+    This is called by Fapshi (payment provider), NOT by the frontend.
+    Fapshi sends this webhook when payment status changes.
+    """
+    transId: str = Field(..., description="Fapshi transaction ID (required)")
+    externalId: Optional[str] = Field(None, description="External ID (subscription_id) - optional, we use transId to find payment")
+    status: str = Field(..., description="Payment status: SUCCESSFUL, FAILED, etc. (required)")
+    # Optional fields that Fapshi might send
+    amount: Optional[float] = Field(None, description="Payment amount (optional)")
+    message: Optional[str] = Field(None, description="Status message (optional)")
+    datePaid: Optional[str] = Field(None, description="Date payment was completed (optional)")
+
+
+class PaymentStatusResponse(BaseModel):
+    """Response schema for payment status (for frontend polling)"""
+    payment_id: int
+    subscription_id: int
+    status: str  # initiated, success, failed
+    provider_ref: Optional[str] = None  # transId from Fapshi
+    amount: float
+    currency: str
+    created_at: datetime
+    updated_at: datetime
 
