@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 # Fapshi API endpoints
 FAPSHI_SANDBOX_URL = "https://sandbox.fapshi.com"
-FAPSHI_PRODUCTION_URL = "https://fapshi.com"
+FAPSHI_PRODUCTION_URL = "https://live.fapshi.com"
 FAPSHI_DIRECT_PAY_ENDPOINT = "/direct-pay"
 
 
@@ -21,12 +21,16 @@ class FapshiService:
     @staticmethod
     def _get_base_url() -> str:
         """Get Fapshi base URL based on environment"""
-        # Use sandbox for development, production for production
-        # You can add an environment variable to control this
-        if not settings.API_USER or not settings.API_KEY:
-            logger.warning("Fapshi credentials not configured, using sandbox")
-        # For now, default to sandbox. Add FAPSHI_ENV setting if needed
-        return FAPSHI_SANDBOX_URL
+        # Use FAPSHI_ENV setting to determine which environment to use
+        env = getattr(settings, 'FAPSHI_ENV', 'production').lower()
+        
+        if env == "sandbox":
+            logger.info("Using Fapshi sandbox environment")
+            return FAPSHI_SANDBOX_URL
+        else:
+            # Default to production/live
+            logger.info("Using Fapshi live/production environment")
+            return FAPSHI_PRODUCTION_URL
     
     @staticmethod
     def _get_headers() -> Dict[str, str]:

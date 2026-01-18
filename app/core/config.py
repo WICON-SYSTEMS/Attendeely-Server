@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     # Payment (Fapshi)
     API_USER: Optional[str] = None  # Fapshi API user (required for payment functionality)
     API_KEY: Optional[str] = None  # Fapshi API key (required for payment functionality)
-    FAPSHI_ENV: str = "sandbox"  # Fapshi environment: "sandbox" or "production"
+    FAPSHI_ENV: str = "sandbox"  # Fapshi environment: "sandbox" or "production" (default: production)
     
     model_config = SettingsConfigDict(
         env_file=".env",
