@@ -547,7 +547,9 @@ async def fapshi_webhook(
     No authentication required (Fapshi calls this directly).
     """
     try:
-        logger.info(f"Received Fapshi webhook: transId={webhook_data.transId}, status={webhook_data.status}")
+        # Log full webhook payload for debugging
+        logger.info(f"Received Fapshi webhook - Full payload: {webhook_data.model_dump()}")
+        logger.info(f"Webhook details - transId: {webhook_data.transId}, status: '{webhook_data.status}', externalId: {webhook_data.externalId}")
         
         # Find payment by provider_ref (transId)
         payment = db.query(Payment).filter(
@@ -562,11 +564,14 @@ async def fapshi_webhook(
                 status_code=status.HTTP_404_NOT_FOUND
             )
         
+        logger.info(f"Found payment: payment_id={payment.id}, current_status={payment.status.value}, subscription_id={payment.subscription_id}")
+        
         # Update payment status and response
         payment.provider_response = str(webhook_data.model_dump())
         
         # Handle payment status (Fapshi sends "SUCCESSFUL" in uppercase)
         status_lower = webhook_data.status.lower()
+        logger.info(f"Processing status: original='{webhook_data.status}', lowercased='{status_lower}'")
         if status_lower in ["success", "successful", "completed", "paid"]:
             # Payment successful
             payment.status = PaymentStatus.SUCCESS
@@ -665,7 +670,7 @@ async def fapshi_webhook(
             db.commit()
             db.refresh(payment)
             
-            logger.warning(f"Payment failed: payment_id={payment.id}, transId={webhook_data.transId}")
+            logger.warning(f"Payment failed: payment_id={payment.id}, transId={webhook_data.transId}, status_received='{webhook_data.status}'")
             
             return success_response(
                 message="Payment status updated",
@@ -677,13 +682,15 @@ async def fapshi_webhook(
             )
         
         else:
-            # Unknown status
-            logger.warning(f"Unknown payment status: {webhook_data.status}, transId={webhook_data.transId}")
+            # Unknown status - log full details for debugging
+            logger.warning(f"Unknown payment status: '{webhook_data.status}' (lowercased: '{status_lower}'), transId={webhook_data.transId}")
+            logger.warning(f"Full webhook payload: {webhook_data.model_dump()}")
+            # Don't update payment status for unknown statuses - keep as initiated
             db.commit()
             
             return success_response(
-                message="Webhook received",
-                data={"status": "unknown"},
+                message="Webhook received with unknown status",
+                data={"status": "unknown", "received_status": webhook_data.status},
                 status_code=status.HTTP_200_OK
             )
         
