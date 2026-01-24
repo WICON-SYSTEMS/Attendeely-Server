@@ -111,3 +111,19 @@ class PaymentStatusResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+
+class TestPaymentRequest(BaseModel):
+    """Request schema for test payment endpoint"""
+    phone: str = Field(..., description="Phone number for payment (mobile money)")
+    name: Optional[str] = Field(None, description="Name for payment (defaults to user's full name)")
+    message: Optional[str] = Field(None, description="Optional payment message")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "phone": "+237612345678",
+                "name": "John Doe",
+                "message": "Test payment"
+            }
+        }
+

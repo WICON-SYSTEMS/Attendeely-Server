@@ -30,6 +30,7 @@ from app.schemas.subscription import (
     PaymentInitiationResponse,
     FapshiWebhookRequest,
     PaymentStatusResponse,
+    TestPaymentRequest,
 )
 from app.schemas.response import success_response, error_response
 from app.utils.subscription_features import (
@@ -532,6 +533,142 @@ async def cancel_subscription(
         db.rollback()
         return error_response(
             message="An error occurred while cancelling your subscription.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@router.post("/test-payment", status_code=status.HTTP_201_CREATED)
+async def test_payment(
+    request: TestPaymentRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Test endpoint to initiate a small payment (100 XAF) for testing purposes.
+    This helps verify the payment flow without requiring large amounts.
+    """
+    try:
+        # Get user's organization
+        organization = db.query(Organization).filter(
+            Organization.admin_id == current_user.id
+        ).first()
+        
+        if not organization:
+            return error_response(
+                message="Organization not found.",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get or create a test subscription
+        subscription = db.query(Subscription).filter(
+            Subscription.organization_id == organization.id
+        ).first()
+        
+        # If no subscription exists, create a minimal test one
+        if not subscription:
+            # Get the Free plan for testing
+            free_plan = db.query(SubscriptionPlan).filter(
+                SubscriptionPlan.name == "Free"
+            ).first()
+            
+            if not free_plan:
+                return error_response(
+                    message="Free plan not found. Please seed subscription plans first.",
+                    status_code=status.HTTP_404_NOT_FOUND
+                )
+            
+            subscription = Subscription(
+                organization_id=organization.id,
+                plan_id=free_plan.id,
+                status=SubscriptionStatus.PENDING,
+                plan=SubscriptionPlanEnum.FREE,
+                monthly_price=Decimal("0.00"),
+                is_active=True
+            )
+            db.add(subscription)
+            db.flush()
+        
+        # Test payment amount: 100 XAF
+        test_amount = Decimal("100.00")
+        amount_for_fapshi = 100  # 100 XAF
+        
+        # Prepare payment initiation data
+        payment_name = request.name or current_user.full_name
+        payment_message = request.message or "Test payment - 100 XAF"
+        
+        # Initiate payment via Fapshi
+        fapshi_response = FapshiService.initiate_payment(
+            amount=amount_for_fapshi,
+            phone=request.phone,
+            email=current_user.email,
+            name=payment_name,
+            external_id=f"TEST_{subscription.id}",  # Prefix with TEST_ to identify test payments
+            medium="mobile money",
+            message=payment_message,
+            user_id=str(current_user.id)
+        )
+        
+        # Check if payment initiation was successful
+        if "transId" not in fapshi_response:
+            error_msg = fapshi_response.get("message", "Failed to initiate payment")
+            logger.error(f"Fapshi test payment initiation failed: {error_msg} - subscription_id={subscription.id}")
+            db.rollback()
+            return error_response(
+                message=f"Payment initiation failed: {error_msg}",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Create payment record with status = initiated
+        payment = Payment(
+            user_id=current_user.id,
+            subscription_id=subscription.id,
+            amount=test_amount,
+            currency="XAF",
+            status=PaymentStatus.INITIATED,
+            provider=PaymentProvider.FAPSHI,
+            provider_ref=fapshi_response.get("transId"),
+            provider_response=str(fapshi_response)
+        )
+        db.add(payment)
+        
+        # Commit all changes
+        db.commit()
+        db.refresh(subscription)
+        db.refresh(payment)
+        
+        # Prepare response
+        response_data = PaymentInitiationResponse(
+            trans_id=fapshi_response.get("transId"),
+            message=fapshi_response.get("message", "Test payment initiated successfully"),
+            date_initiated=fapshi_response.get("dateInitiated"),
+            subscription_id=subscription.id,
+            amount=100.0,  # Test amount
+            currency="XAF",
+            status=PaymentStatus.INITIATED.value
+        )
+        
+        logger.info(f"Test payment initiated: payment_id={payment.id}, trans_id={fapshi_response.get('transId')}, amount=100 XAF")
+        
+        return success_response(
+            message="Test payment (100 XAF) initiated successfully",
+            data=response_data.model_dump(),
+            status_code=status.HTTP_201_CREATED
+        )
+        
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.error(f"Validation error in test payment: {str(e)}")
+        db.rollback()
+        return error_response(
+            message=str(e),
+            status_code=status.HTTP_400_BAD_REQUEST
+        )
+    except Exception as e:
+        logger.error(f"Test payment error: {str(e)}", exc_info=True)
+        db.rollback()
+        return error_response(
+            message="An error occurred while processing test payment.",
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
