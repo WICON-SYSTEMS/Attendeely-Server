@@ -127,3 +127,42 @@ class TestPaymentRequest(BaseModel):
             }
         }
 
+
+class SubscriptionStatusByTransIdResponse(BaseModel):
+    """Response schema for subscription status by transaction ID"""
+    trans_id: str
+    payment_id: int
+    subscription_id: int
+    payment_status: str  # initiated, success, failed
+    subscription_status: str  # pending, active, expired, cancelled, etc.
+    amount: float
+    currency: str
+    provider: str  # fapshi
+    plan_name: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    payment_created_at: datetime
+    payment_updated_at: datetime
+
+
+class PaymentHistoryItem(BaseModel):
+    """Schema for a single payment in history"""
+    payment_id: int
+    subscription_id: int
+    trans_id: Optional[str] = None  # provider_ref
+    amount: float
+    currency: str
+    status: str  # initiated, success, failed
+    provider: str  # fapshi
+    plan_name: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class PaymentHistoryResponse(BaseModel):
+    """Response schema for payment history"""
+    payments: List[PaymentHistoryItem]
+    total: int
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+

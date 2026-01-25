@@ -31,6 +31,9 @@ from app.schemas.subscription import (
     FapshiWebhookRequest,
     PaymentStatusResponse,
     TestPaymentRequest,
+    SubscriptionStatusByTransIdResponse,
+    PaymentHistoryItem,
+    PaymentHistoryResponse,
 )
 from app.schemas.response import success_response, error_response
 from app.utils.subscription_features import (
@@ -907,6 +910,199 @@ async def get_payment_status(
         logger.error(f"Get payment status error: {str(e)}", exc_info=True)
         return error_response(
             message="An error occurred while retrieving payment status",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@router.get("/status-by-transid/{trans_id}", status_code=status.HTTP_200_OK)
+async def get_subscription_status_by_transid(
+    trans_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get subscription and payment status by Fapshi transaction ID (transId).
+    Useful for checking payment status after initiating a payment.
+    """
+    try:
+        # Find payment by provider_ref (transId)
+        payment = db.query(Payment).filter(
+            Payment.provider_ref == trans_id,
+            Payment.provider == PaymentProvider.FAPSHI
+        ).first()
+        
+        if not payment:
+            return error_response(
+                message=f"Payment not found for transaction ID: {trans_id}",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Verify payment belongs to current user
+        if payment.user_id != current_user.id:
+            return error_response(
+                message="You don't have permission to access this payment",
+                status_code=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Get subscription
+        subscription = db.query(Subscription).filter(
+            Subscription.id == payment.subscription_id
+        ).first()
+        
+        if not subscription:
+            return error_response(
+                message="Subscription not found for this payment",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get plan name if available
+        plan_name = None
+        if subscription.plan_id:
+            plan = db.query(SubscriptionPlan).filter(
+                SubscriptionPlan.id == subscription.plan_id
+            ).first()
+            if plan:
+                plan_name = plan.name
+        
+        response_data = SubscriptionStatusByTransIdResponse(
+            trans_id=trans_id,
+            payment_id=payment.id,
+            subscription_id=subscription.id,
+            payment_status=payment.status.value,
+            subscription_status=subscription.status.value,
+            amount=float(payment.amount),
+            currency=payment.currency,
+            provider=payment.provider.value,
+            plan_name=plan_name,
+            created_at=subscription.created_at,
+            updated_at=subscription.updated_at,
+            payment_created_at=payment.created_at,
+            payment_updated_at=payment.updated_at
+        )
+        
+        return success_response(
+            message="Subscription status retrieved successfully",
+            data=response_data.model_dump(),
+            status_code=status.HTTP_200_OK
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get subscription status by transId error: {str(e)}", exc_info=True)
+        return error_response(
+            message="An error occurred while retrieving subscription status",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@router.get("/payment-history", status_code=status.HTTP_200_OK)
+async def get_payment_history(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of payments to return"),
+    offset: int = Query(0, ge=0, description="Number of payments to skip")
+):
+    """
+    Get payment history for the current user's organization.
+    Returns a list of all payments associated with the user's subscriptions.
+    """
+    try:
+        # Get user's organization
+        organization = db.query(Organization).filter(
+            Organization.admin_id == current_user.id
+        ).first()
+        
+        if not organization:
+            return error_response(
+                message="Organization not found",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get all subscriptions for the organization
+        subscriptions = db.query(Subscription).filter(
+            Subscription.organization_id == organization.id
+        ).all()
+        
+        if not subscriptions:
+            # Return empty list if no subscriptions
+            response_data = PaymentHistoryResponse(
+                payments=[],
+                total=0,
+                limit=limit,
+                offset=offset
+            )
+            return success_response(
+                message="No payment history found",
+                data=response_data.model_dump(),
+                status_code=status.HTTP_200_OK
+            )
+        
+        # Get subscription IDs
+        subscription_ids = [sub.id for sub in subscriptions]
+        
+        # Query payments for these subscriptions
+        payments_query = db.query(Payment).filter(
+            Payment.subscription_id.in_(subscription_ids),
+            Payment.user_id == current_user.id
+        )
+        
+        # Get total count
+        total = payments_query.count()
+        
+        # Get paginated payments, ordered by most recent first
+        payments = payments_query.order_by(
+            Payment.created_at.desc()
+        ).offset(offset).limit(limit).all()
+        
+        # Build response data
+        payment_items = []
+        for payment in payments:
+            # Get subscription and plan name
+            subscription = next((s for s in subscriptions if s.id == payment.subscription_id), None)
+            plan_name = None
+            
+            if subscription and subscription.plan_id:
+                plan = db.query(SubscriptionPlan).filter(
+                    SubscriptionPlan.id == subscription.plan_id
+                ).first()
+                if plan:
+                    plan_name = plan.name
+            
+            payment_items.append(
+                PaymentHistoryItem(
+                    payment_id=payment.id,
+                    subscription_id=payment.subscription_id,
+                    trans_id=payment.provider_ref,
+                    amount=float(payment.amount),
+                    currency=payment.currency,
+                    status=payment.status.value,
+                    provider=payment.provider.value,
+                    plan_name=plan_name,
+                    created_at=payment.created_at,
+                    updated_at=payment.updated_at
+                )
+            )
+        
+        response_data = PaymentHistoryResponse(
+            payments=payment_items,
+            total=total,
+            limit=limit,
+            offset=offset
+        )
+        
+        return success_response(
+            message="Payment history retrieved successfully",
+            data=response_data.model_dump(),
+            status_code=status.HTTP_200_OK
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get payment history error: {str(e)}", exc_info=True)
+        return error_response(
+            message="An error occurred while retrieving payment history",
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
