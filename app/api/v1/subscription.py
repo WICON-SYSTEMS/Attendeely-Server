@@ -1036,9 +1036,23 @@ async def get_subscription_status_by_transid(
                 status_code=status.HTTP_404_NOT_FOUND
             )
         
-        # Get plan name if available
+        # Determine plan name by matching payment amount to plan amount
+        # This ensures we show the correct plan even if subscription was updated later
+        all_plans = db.query(SubscriptionPlan).filter(
+            SubscriptionPlan.is_active == True  # noqa: E712
+        ).all()
+        
         plan_name = None
-        if subscription.plan_id:
+        payment_amount = float(payment.amount)
+        
+        # Try to match payment amount to a plan amount
+        for plan in all_plans:
+            if float(plan.amount) == payment_amount:
+                plan_name = plan.name
+                break
+        
+        # Fallback: Get plan from subscription's current plan_id
+        if not plan_name and subscription.plan_id:
             plan = db.query(SubscriptionPlan).filter(
                 SubscriptionPlan.id == subscription.plan_id
             ).first()
@@ -1136,19 +1150,40 @@ async def get_payment_history(
             Payment.created_at.desc()
         ).offset(offset).limit(limit).all()
         
+        # Get all active plans to match payment amounts
+        all_plans = db.query(SubscriptionPlan).filter(
+            SubscriptionPlan.is_active == True  # noqa: E712
+        ).all()
+        
+        # Create a map of amount -> plan name for quick lookup
+        # Handle multiple plans with same amount by preferring exact match
+        amount_to_plan = {}
+        for plan in all_plans:
+            amount_key = float(plan.amount)
+            # If multiple plans have same amount, keep the first one (shouldn't happen, but just in case)
+            if amount_key not in amount_to_plan:
+                amount_to_plan[amount_key] = plan.name
+        
         # Build response data
         payment_items = []
         for payment in payments:
-            # Get subscription and plan name
-            subscription = next((s for s in subscriptions if s.id == payment.subscription_id), None)
+            # Determine plan name by matching payment amount to plan amount
+            # This ensures we show the correct plan even if subscription was updated later
             plan_name = None
+            payment_amount = float(payment.amount)
             
-            if subscription and subscription.plan_id:
-                plan = db.query(SubscriptionPlan).filter(
-                    SubscriptionPlan.id == subscription.plan_id
-                ).first()
-                if plan:
-                    plan_name = plan.name
+            # Try to match payment amount to a plan amount
+            if payment_amount in amount_to_plan:
+                plan_name = amount_to_plan[payment_amount]
+            else:
+                # Fallback: Get plan from subscription's current plan_id
+                subscription = next((s for s in subscriptions if s.id == payment.subscription_id), None)
+                if subscription and subscription.plan_id:
+                    plan = db.query(SubscriptionPlan).filter(
+                        SubscriptionPlan.id == subscription.plan_id
+                    ).first()
+                    if plan:
+                        plan_name = plan.name
             
             payment_items.append(
                 PaymentHistoryItem(
@@ -1238,9 +1273,23 @@ async def get_pending_payment(
         
         # Get subscription and plan details
         subscription = next((s for s in subscriptions if s.id == pending_payment.subscription_id), None)
-        plan_name = None
         
-        if subscription and subscription.plan_id:
+        # Determine plan name by matching payment amount to plan amount
+        all_plans = db.query(SubscriptionPlan).filter(
+            SubscriptionPlan.is_active == True  # noqa: E712
+        ).all()
+        
+        plan_name = None
+        payment_amount = float(pending_payment.amount)
+        
+        # Try to match payment amount to a plan amount
+        for plan in all_plans:
+            if float(plan.amount) == payment_amount:
+                plan_name = plan.name
+                break
+        
+        # Fallback: Get plan from subscription's current plan_id
+        if not plan_name and subscription and subscription.plan_id:
             plan = db.query(SubscriptionPlan).filter(
                 SubscriptionPlan.id == subscription.plan_id
             ).first()
