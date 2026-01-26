@@ -90,7 +90,7 @@ def create_feature_requirement(feature: str):
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Subscription has expired. Please renew your subscription."
                 )
-        elif subscription.status in [SubscriptionStatus.EXPIRED, SubscriptionStatus.CANCELLED]:
+        elif subscription.status in [SubscriptionStatus.EXPIRED, SubscriptionStatus.CANCELLED, SubscriptionStatus.FAILED]:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Subscription is not active. Please upgrade or renew your subscription."
@@ -115,9 +115,28 @@ async def check_employee_limit(
 ) -> tuple[Organization, Subscription]:
     """
     Dependency to check if organization can add more employees.
-    Raises HTTPException if employee limit is reached.
+    Raises HTTPException if employee limit is reached or subscription is not active.
     """
     organization, subscription = await get_organization_subscription(current_user, db)
+    
+    # First check if subscription is active - block if expired, cancelled, or failed
+    if subscription.status == SubscriptionStatus.TRIAL:
+        if subscription.trial_end_date and not is_trial_active(subscription.trial_end_date):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Trial period has expired. Please upgrade your subscription."
+            )
+    elif subscription.status == SubscriptionStatus.ACTIVE:
+        if subscription.subscription_end_date and not is_subscription_active(subscription.subscription_end_date):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Subscription has expired. Please renew your subscription."
+            )
+    elif subscription.status in [SubscriptionStatus.EXPIRED, SubscriptionStatus.CANCELLED, SubscriptionStatus.FAILED]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Subscription is not active. Please upgrade or renew your subscription."
+        )
     
     from app.models.employee import Employee
     current_employee_count = db.query(Employee).filter(
@@ -135,6 +154,51 @@ async def check_employee_limit(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Employee limit reached ({limit} employees) for {plan_name} plan. Please upgrade to add more employees."
+        )
+    
+    return organization, subscription
+
+
+async def require_active_subscription(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> tuple[Organization, Subscription]:
+    """
+    Dependency to require an active subscription (not expired, cancelled, or failed).
+    Use this for endpoints that should be completely blocked when subscription is not active.
+    
+    Example usage:
+        @router.post("/some-endpoint")
+        async def some_endpoint(
+            organization, subscription = Depends(require_active_subscription),
+            db: Session = Depends(get_db)
+        ):
+            # Endpoint code here
+    """
+    organization, subscription = await get_organization_subscription(current_user, db)
+    
+    # Check if subscription is active
+    if subscription.status == SubscriptionStatus.TRIAL:
+        if subscription.trial_end_date and not is_trial_active(subscription.trial_end_date):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Trial period has expired. Please upgrade your subscription."
+            )
+    elif subscription.status == SubscriptionStatus.ACTIVE:
+        if subscription.subscription_end_date and not is_subscription_active(subscription.subscription_end_date):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Subscription has expired. Please renew your subscription."
+            )
+    elif subscription.status in [SubscriptionStatus.EXPIRED, SubscriptionStatus.CANCELLED, SubscriptionStatus.FAILED]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Subscription is not active. Please upgrade or renew your subscription to continue using the service."
+        )
+    elif subscription.status == SubscriptionStatus.PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Payment is pending. Please complete your payment to activate your subscription."
         )
     
     return organization, subscription
