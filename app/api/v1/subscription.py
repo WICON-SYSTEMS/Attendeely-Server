@@ -358,8 +358,8 @@ async def subscribe_to_plan(
                 db.commit()
                 db.refresh(existing_subscription)
             
-            # Only block if subscription is actually active (not expired, cancelled, or pending)
-            # Allow resubscription if expired, cancelled, or pending
+            # Only block if subscription is actually active (not expired, cancelled, failed, or pending)
+            # Allow resubscription if expired, cancelled, failed, or pending
             if existing_subscription.status == SubscriptionStatus.ACTIVE and not is_expired:
                 return error_response(
                     message="You already have an active subscription. Please update your existing subscription instead.",
@@ -393,10 +393,11 @@ async def subscribe_to_plan(
             # Otherwise, create a new subscription for a new payment cycle
             if existing_subscription.status == SubscriptionStatus.PENDING:
                 should_create_new = False
-            # If expired, cancelled, or past_due, create a new subscription
+            # If expired, cancelled, failed, or past_due, create a new subscription
             elif existing_subscription.status in [
                 SubscriptionStatus.EXPIRED,
                 SubscriptionStatus.CANCELLED,
+                SubscriptionStatus.FAILED,
                 SubscriptionStatus.PAST_DUE
             ]:
                 should_create_new = True
@@ -870,17 +871,17 @@ async def fapshi_webhook(
             if subscription:
                 # Update subscription status based on current state
                 if subscription.status == SubscriptionStatus.PENDING:
-                    # Payment failed for a pending subscription - mark as expired/cancelled
+                    # Payment failed for a pending subscription - mark as FAILED
                     # This means the subscription never activated because payment failed
-                    subscription.status = SubscriptionStatus.EXPIRED
+                    subscription.status = SubscriptionStatus.FAILED
                     subscription.is_active = False
-                    logger.info(f"Subscription expired due to failed payment: subscription_id={subscription.id}, payment_id={payment.id}")
+                    logger.info(f"Subscription marked as failed due to failed payment: subscription_id={subscription.id}, payment_id={payment.id}")
                 elif subscription.status == SubscriptionStatus.ACTIVE:
                     # Payment failed but subscription was already active
                     # Keep subscription active (user might have multiple payment attempts)
                     # Just mark the payment as failed, subscription continues
                     logger.info(f"Payment failed for active subscription (keeping subscription active): subscription_id={subscription.id}, payment_id={payment.id}")
-                # For other statuses (EXPIRED, CANCELLED, etc.), don't change subscription status
+                # For other statuses (EXPIRED, CANCELLED, FAILED, etc.), don't change subscription status
             else:
                 logger.warning(f"Subscription not found for failed payment: payment_id={payment.id}, subscription_id={payment.subscription_id}")
             

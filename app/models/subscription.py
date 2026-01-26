@@ -20,6 +20,7 @@ class SubscriptionStatus(str, enum.Enum):
     PAST_DUE = "past_due"
     EXPIRED = "expired"
     CANCELLED = "cancelled"
+    FAILED = "failed"  # Payment failed, subscription never activated
 
 
 class PaymentStatus(str, enum.Enum):
