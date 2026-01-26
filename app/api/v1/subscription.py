@@ -68,6 +68,37 @@ async def get_current_subscription(
                 db.commit()
                 db.refresh(subscription)
         
+        # Get plan from database to ensure consistency (plan enum might be out of sync)
+        plan_name = None
+        plan_from_db = None
+        if subscription.plan_id:
+            plan_from_db = db.query(SubscriptionPlan).filter(
+                SubscriptionPlan.id == subscription.plan_id
+            ).first()
+            if plan_from_db:
+                plan_name = plan_from_db.name
+                # Sync plan enum if it's out of sync
+                try:
+                    plan_enum = SubscriptionPlanEnum(plan_name)
+                    if subscription.plan != plan_enum:
+                        subscription.plan = plan_enum
+                        db.commit()
+                        db.refresh(subscription)
+                except ValueError:
+                    pass  # Plan name doesn't match enum, keep existing
+        
+        # Fallback to enum value if plan_id is not set
+        if not plan_name:
+            plan_name = subscription.plan.value if subscription.plan else "Free"
+        
+        # Get plan enum for feature lookup (use database plan if available, otherwise enum)
+        plan_for_features = subscription.plan
+        if plan_from_db:
+            try:
+                plan_for_features = SubscriptionPlanEnum(plan_from_db.name)
+            except ValueError:
+                pass  # Keep existing plan enum
+        
         # Get current employee count
         from app.models.employee import Employee
         current_employee_count = db.query(Employee).filter(
@@ -75,7 +106,7 @@ async def get_current_subscription(
             Employee.is_active == True  # noqa: E712
         ).count()
         
-        employee_limit = get_employee_limit(subscription.plan)
+        employee_limit = get_employee_limit(plan_for_features)
         if employee_limit == -1:
             employee_limit_str = "Unlimited"
         else:
@@ -89,17 +120,22 @@ async def get_current_subscription(
             trial_days_remaining = max(0, days_left)
         
         # Get available features
-        features = get_plan_features(subscription.plan)
+        features = get_plan_features(plan_for_features)
+        
+        # Use monthly_price from subscription, but if it's None and we have plan_from_db, use plan amount
+        monthly_price = float(subscription.monthly_price) if subscription.monthly_price else None
+        if monthly_price is None and plan_from_db:
+            monthly_price = float(plan_from_db.amount)
         
         response_data = SubscriptionResponse(
             id=subscription.id,
-            plan=subscription.plan.value,
+            plan=plan_name,  # Use plan name from database for consistency
             status=subscription.status.value,
             trial_start_date=subscription.trial_start_date,
             trial_end_date=subscription.trial_end_date,
             subscription_start_date=subscription.subscription_start_date,
             subscription_end_date=subscription.subscription_end_date,
-            monthly_price=float(subscription.monthly_price) if subscription.monthly_price else None,
+            monthly_price=monthly_price,
             current_employee_count=current_employee_count,
             employee_limit=employee_limit_str,
             features=list(features),
@@ -368,6 +404,14 @@ async def subscribe_to_plan(
                 # For any other status (shouldn't happen, but create new to be safe)
                 should_create_new = True
         
+        # Set plan enum based on plan name from database
+        try:
+            plan_enum = SubscriptionPlanEnum(plan.name)
+        except ValueError:
+            # If plan name doesn't match enum, default to FREE
+            plan_enum = SubscriptionPlanEnum.FREE
+            logger.warning(f"Plan name '{plan.name}' doesn't match SubscriptionPlanEnum, defaulting to FREE")
+        
         # Create or update subscription with status = pending
         if existing_subscription and not should_create_new:
             # Update existing PENDING subscription (payment retry scenario)
@@ -378,8 +422,8 @@ async def subscribe_to_plan(
             subscription.next_billing_date = None  # Will be set when payment is confirmed
             subscription.last_paid_date = None
             subscription.grace_ends_at = None
-            # Update legacy plan field for backward compatibility
-            subscription.plan = SubscriptionPlanEnum.FREE  # Default, will be updated based on plan name
+            # Update plan enum field to match the selected plan
+            subscription.plan = plan_enum
             subscription.monthly_price = plan.amount
             subscription.is_active = True
         else:
@@ -392,7 +436,7 @@ async def subscribe_to_plan(
                 next_billing_date=None,
                 last_paid_date=None,
                 grace_ends_at=None,
-                plan=SubscriptionPlanEnum.FREE,  # Default, will be updated based on plan name
+                plan=plan_enum,  # Set plan enum based on plan name
                 monthly_price=plan.amount,
                 is_active=True
             )
