@@ -34,6 +34,7 @@ from app.schemas.subscription import (
     SubscriptionStatusByTransIdResponse,
     PaymentHistoryItem,
     PaymentHistoryResponse,
+    PendingPaymentResponse,
 )
 from app.schemas.response import success_response, error_response
 from app.utils.subscription_features import (
@@ -345,9 +346,31 @@ async def subscribe_to_plan(
         # For XAF, send the amount directly (e.g., 33000 for 33,000 XAF)
         amount_for_fapshi = int(float(plan.amount))
         
-        # Create or update subscription with status = pending
+        # Determine if we should create a new subscription or update existing one
+        # Create a NEW subscription if:
+        # 1. No existing subscription exists, OR
+        # 2. Existing subscription is expired, cancelled, or past_due (allows new payment cycle)
+        # Update existing subscription only if it's in PENDING status (payment retry)
+        should_create_new = True
         if existing_subscription:
-            # Update existing subscription
+            # Only update if subscription is already PENDING (retry scenario)
+            # Otherwise, create a new subscription for a new payment cycle
+            if existing_subscription.status == SubscriptionStatus.PENDING:
+                should_create_new = False
+            # If expired, cancelled, or past_due, create a new subscription
+            elif existing_subscription.status in [
+                SubscriptionStatus.EXPIRED,
+                SubscriptionStatus.CANCELLED,
+                SubscriptionStatus.PAST_DUE
+            ]:
+                should_create_new = True
+            else:
+                # For any other status (shouldn't happen, but create new to be safe)
+                should_create_new = True
+        
+        # Create or update subscription with status = pending
+        if existing_subscription and not should_create_new:
+            # Update existing PENDING subscription (payment retry scenario)
             subscription = existing_subscription
             subscription.plan_id = plan.id
             subscription.status = SubscriptionStatus.PENDING
@@ -358,8 +381,9 @@ async def subscribe_to_plan(
             # Update legacy plan field for backward compatibility
             subscription.plan = SubscriptionPlanEnum.FREE  # Default, will be updated based on plan name
             subscription.monthly_price = plan.amount
+            subscription.is_active = True
         else:
-            # Create new subscription
+            # Create new subscription (new payment cycle)
             subscription = Subscription(
                 organization_id=organization.id,
                 plan_id=plan.id,
@@ -562,34 +586,30 @@ async def test_payment(
                 status_code=status.HTTP_404_NOT_FOUND
             )
         
-        # Get or create a test subscription
-        subscription = db.query(Subscription).filter(
-            Subscription.organization_id == organization.id
+        # For test payments, always create a new subscription to track each test payment separately
+        # Get the Free plan for testing
+        free_plan = db.query(SubscriptionPlan).filter(
+            SubscriptionPlan.name == "Free"
         ).first()
         
-        # If no subscription exists, create a minimal test one
-        if not subscription:
-            # Get the Free plan for testing
-            free_plan = db.query(SubscriptionPlan).filter(
-                SubscriptionPlan.name == "Free"
-            ).first()
-            
-            if not free_plan:
-                return error_response(
-                    message="Free plan not found. Please seed subscription plans first.",
-                    status_code=status.HTTP_404_NOT_FOUND
-                )
-            
-            subscription = Subscription(
-                organization_id=organization.id,
-                plan_id=free_plan.id,
-                status=SubscriptionStatus.PENDING,
-                plan=SubscriptionPlanEnum.FREE,
-                monthly_price=Decimal("0.00"),
-                is_active=True
+        if not free_plan:
+            return error_response(
+                message="Free plan not found. Please seed subscription plans first.",
+                status_code=status.HTTP_404_NOT_FOUND
             )
-            db.add(subscription)
-            db.flush()
+        
+        # Create a new test subscription for each test payment
+        # This ensures each test payment has its own subscription_id for tracking
+        subscription = Subscription(
+            organization_id=organization.id,
+            plan_id=free_plan.id,
+            status=SubscriptionStatus.PENDING,
+            plan=SubscriptionPlanEnum.FREE,
+            monthly_price=Decimal("0.00"),
+            is_active=True
+        )
+        db.add(subscription)
+        db.flush()
         
         # Test payment amount: 100 XAF
         test_amount = Decimal("100.00")
@@ -798,17 +818,32 @@ async def fapshi_webhook(
             # Payment failed
             payment.status = PaymentStatus.FAILED
             
-            # Update subscription to keep it as pending or mark as failed
+            # Get subscription
             subscription = db.query(Subscription).filter(
                 Subscription.id == payment.subscription_id
             ).first()
             
-            if subscription and subscription.status == SubscriptionStatus.PENDING:
-                # Keep as pending, user can retry
-                pass
+            if subscription:
+                # Update subscription status based on current state
+                if subscription.status == SubscriptionStatus.PENDING:
+                    # Payment failed for a pending subscription - mark as expired/cancelled
+                    # This means the subscription never activated because payment failed
+                    subscription.status = SubscriptionStatus.EXPIRED
+                    subscription.is_active = False
+                    logger.info(f"Subscription expired due to failed payment: subscription_id={subscription.id}, payment_id={payment.id}")
+                elif subscription.status == SubscriptionStatus.ACTIVE:
+                    # Payment failed but subscription was already active
+                    # Keep subscription active (user might have multiple payment attempts)
+                    # Just mark the payment as failed, subscription continues
+                    logger.info(f"Payment failed for active subscription (keeping subscription active): subscription_id={subscription.id}, payment_id={payment.id}")
+                # For other statuses (EXPIRED, CANCELLED, etc.), don't change subscription status
+            else:
+                logger.warning(f"Subscription not found for failed payment: payment_id={payment.id}, subscription_id={payment.subscription_id}")
             
             db.commit()
             db.refresh(payment)
+            if subscription:
+                db.refresh(subscription)
             
             logger.warning(f"Payment failed: payment_id={payment.id}, transId={webhook_data.transId}, status_received='{webhook_data.status}'")
             
@@ -816,6 +851,8 @@ async def fapshi_webhook(
                 message="Payment status updated",
                 data={
                     "payment_id": payment.id,
+                    "subscription_id": subscription.id if subscription else None,
+                    "subscription_status": subscription.status.value if subscription else None,
                     "status": "failed"
                 },
                 status_code=status.HTTP_200_OK
@@ -1103,6 +1140,95 @@ async def get_payment_history(
         logger.error(f"Get payment history error: {str(e)}", exc_info=True)
         return error_response(
             message="An error occurred while retrieving payment history",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@router.get("/pending-payment", status_code=status.HTTP_200_OK)
+async def get_pending_payment(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get the most recent pending payment (status = INITIATED) for the current user.
+    Returns the payment that is waiting for user confirmation or completion.
+    """
+    try:
+        # Get user's organization
+        organization = db.query(Organization).filter(
+            Organization.admin_id == current_user.id
+        ).first()
+        
+        if not organization:
+            return error_response(
+                message="Organization not found",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get all subscriptions for the organization
+        subscriptions = db.query(Subscription).filter(
+            Subscription.organization_id == organization.id
+        ).all()
+        
+        if not subscriptions:
+            return error_response(
+                message="No subscriptions found",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get subscription IDs
+        subscription_ids = [sub.id for sub in subscriptions]
+        
+        # Find the most recent pending payment (status = INITIATED) for this user
+        pending_payment = db.query(Payment).filter(
+            Payment.subscription_id.in_(subscription_ids),
+            Payment.user_id == current_user.id,
+            Payment.status == PaymentStatus.INITIATED
+        ).order_by(Payment.created_at.desc()).first()
+        
+        if not pending_payment:
+            return error_response(
+                message="No pending payment found",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get subscription and plan details
+        subscription = next((s for s in subscriptions if s.id == pending_payment.subscription_id), None)
+        plan_name = None
+        
+        if subscription and subscription.plan_id:
+            plan = db.query(SubscriptionPlan).filter(
+                SubscriptionPlan.id == subscription.plan_id
+            ).first()
+            if plan:
+                plan_name = plan.name
+        
+        response_data = PendingPaymentResponse(
+            payment_id=pending_payment.id,
+            subscription_id=pending_payment.subscription_id,
+            trans_id=pending_payment.provider_ref,
+            amount=float(pending_payment.amount),
+            currency=pending_payment.currency,
+            status=pending_payment.status.value,
+            provider=pending_payment.provider.value,
+            plan_name=plan_name,
+            subscription_status=subscription.status.value if subscription else None,
+            created_at=pending_payment.created_at,
+            updated_at=pending_payment.updated_at
+        )
+        
+        return success_response(
+            message="Pending payment retrieved successfully",
+            data=response_data.model_dump(),
+            status_code=status.HTTP_200_OK
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get pending payment error: {str(e)}", exc_info=True)
+        return error_response(
+            message="An error occurred while retrieving pending payment",
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 

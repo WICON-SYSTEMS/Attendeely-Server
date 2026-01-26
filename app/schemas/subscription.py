@@ -166,3 +166,18 @@ class PaymentHistoryResponse(BaseModel):
     limit: Optional[int] = None
     offset: Optional[int] = None
 
+
+class PendingPaymentResponse(BaseModel):
+    """Response schema for pending payment"""
+    payment_id: int
+    subscription_id: int
+    trans_id: Optional[str] = None  # provider_ref (transId from Fapshi)
+    amount: float
+    currency: str
+    status: str  # initiated
+    provider: str  # fapshi
+    plan_name: Optional[str] = None
+    subscription_status: str  # pending, active, etc.
+    created_at: datetime
+    updated_at: datetime
+
