@@ -60,13 +60,44 @@ async def get_current_subscription(
     try:
         organization, subscription = await get_organization_subscription(current_user, db)
         
+        # Don't modify status if subscription is already CANCELLED or FAILED
+        # These are final states that shouldn't be changed
+        if subscription.status in [SubscriptionStatus.CANCELLED, SubscriptionStatus.FAILED]:
+            # Status is already final, just return it as-is
+            pass
         # Check if subscription has expired and update status if needed
-        if subscription.status == SubscriptionStatus.ACTIVE and subscription.subscription_end_date:
+        elif subscription.status == SubscriptionStatus.ACTIVE and subscription.subscription_end_date:
             if datetime.utcnow() > subscription.subscription_end_date:
                 subscription.status = SubscriptionStatus.EXPIRED
                 subscription.is_active = False
                 db.commit()
                 db.refresh(subscription)
+        
+        # Check if subscription is PENDING but has a failed payment - update to FAILED
+        elif subscription.status == SubscriptionStatus.PENDING:
+            # Get the most recent payment for this subscription
+            recent_payment = db.query(Payment).filter(
+                Payment.subscription_id == subscription.id
+            ).order_by(Payment.created_at.desc()).first()
+            
+            # Check if the most recent payment is FAILED
+            # This means payment failed and subscription should be marked as FAILED
+            if recent_payment and recent_payment.status == PaymentStatus.FAILED:
+                # Check if there's no successful payment after this failed one
+                # (to avoid marking as failed if user retried and succeeded)
+                successful_payment_after = db.query(Payment).filter(
+                    Payment.subscription_id == subscription.id,
+                    Payment.status == PaymentStatus.SUCCESS,
+                    Payment.created_at > recent_payment.created_at
+                ).first()
+                
+                if not successful_payment_after:
+                    # Payment failed and no successful payment after, update subscription status to FAILED
+                    subscription.status = SubscriptionStatus.FAILED
+                    subscription.is_active = False
+                    db.commit()
+                    db.refresh(subscription)
+                    logger.info(f"Updated subscription status from PENDING to FAILED based on failed payment: subscription_id={subscription.id}, payment_id={recent_payment.id}")
         
         # Get plan from database to ensure consistency (plan enum might be out of sync)
         plan_name = None
