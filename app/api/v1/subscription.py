@@ -413,29 +413,6 @@ async def subscribe_to_plan(
         # For XAF, send the amount directly (e.g., 33000 for 33,000 XAF)
         amount_for_fapshi = int(float(plan.amount))
         
-        # Determine if we should create a new subscription or update existing one
-        # Create a NEW subscription if:
-        # 1. No existing subscription exists, OR
-        # 2. Existing subscription is expired, cancelled, or past_due (allows new payment cycle)
-        # Update existing subscription only if it's in PENDING status (payment retry)
-        should_create_new = True
-        if existing_subscription:
-            # Only update if subscription is already PENDING (retry scenario)
-            # Otherwise, create a new subscription for a new payment cycle
-            if existing_subscription.status == SubscriptionStatus.PENDING:
-                should_create_new = False
-            # If expired, cancelled, failed, or past_due, create a new subscription
-            elif existing_subscription.status in [
-                SubscriptionStatus.EXPIRED,
-                SubscriptionStatus.CANCELLED,
-                SubscriptionStatus.FAILED,
-                SubscriptionStatus.PAST_DUE
-            ]:
-                should_create_new = True
-            else:
-                # For any other status (shouldn't happen, but create new to be safe)
-                should_create_new = True
-        
         # Set plan enum based on plan name from database
         try:
             plan_enum = SubscriptionPlanEnum(plan.name)
@@ -445,8 +422,10 @@ async def subscribe_to_plan(
             logger.warning(f"Plan name '{plan.name}' doesn't match SubscriptionPlanEnum, defaulting to FREE")
         
         # Create or update subscription with status = pending
-        if existing_subscription and not should_create_new:
-            # Update existing PENDING subscription (payment retry scenario)
+        # Note: Due to unique constraint on organization_id, we can only have one subscription per organization
+        # So we always update the existing subscription if it exists, or create a new one if it doesn't
+        if existing_subscription:
+            # Update existing subscription (regardless of status - expired, cancelled, failed, pending, etc.)
             subscription = existing_subscription
             subscription.plan_id = plan.id
             subscription.status = SubscriptionStatus.PENDING
@@ -459,7 +438,7 @@ async def subscribe_to_plan(
             subscription.monthly_price = plan.amount
             subscription.is_active = True
         else:
-            # Create new subscription (new payment cycle)
+            # Create new subscription (only if no existing subscription)
             subscription = Subscription(
                 organization_id=organization.id,
                 plan_id=plan.id,
