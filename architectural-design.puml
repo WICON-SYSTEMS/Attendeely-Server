@@ -1,0 +1,400 @@
+@startuml Architectural_Design
+!theme plain
+skinparam componentStyle rectangle
+skinparam linetype ortho
+
+title Attendeely System - Architectural Design Diagram
+
+' ============================================
+' High-Level Architecture
+' ============================================
+@startuml High_Level_Architecture
+title High-Level System Architecture
+
+package "Client Layer" {
+    [Web Frontend] as WebFrontend
+    [Mobile Apps] as MobileApps
+}
+
+package "API Layer" {
+    component [FastAPI Application] as FastAPI {
+        component [API Routes] as Routes
+        component [Middleware] as Middleware
+        component [Dependencies] as Dependencies
+    }
+}
+
+package "Application Layer" {
+    component [Business Logic] as BusinessLogic {
+        component [Services] as Services
+        component [Utils] as Utils
+        component [Security] as Security
+    }
+}
+
+package "Data Access Layer" {
+    component [SQLAlchemy ORM] as ORM {
+        component [Models] as Models
+        component [Queries] as Queries
+    }
+}
+
+package "Database Layer" {
+    database "PostgreSQL" as PostgreSQL
+}
+
+package "External Services" {
+    cloud "Fapshi\nPayment Gateway" as Fapshi
+    cloud "Cloudinary\nImage Storage" as Cloudinary
+    cloud "Resend\nEmail Service" as Resend
+}
+
+' Client to API
+WebFrontend --> Routes : HTTP/REST
+MobileApps --> Routes : HTTP/REST
+
+' API Layer
+Routes --> Middleware : Request Processing
+Middleware --> Dependencies : Dependency Injection
+Dependencies --> Security : Authentication/Authorization
+
+' Application Layer
+Routes --> BusinessLogic : Business Logic
+BusinessLogic --> Services : Service Calls
+BusinessLogic --> Utils : Utility Functions
+Security --> BusinessLogic : Access Control
+
+' Data Access
+BusinessLogic --> ORM : Data Operations
+ORM --> Models : Model Definitions
+ORM --> Queries : Database Queries
+
+' Database
+ORM --> PostgreSQL : SQL Queries
+PostgreSQL --> ORM : Query Results
+
+' External Services
+Services --> Fapshi : Payment API
+Services --> Cloudinary : Image API
+Services --> Resend : Email API
+
+Fapshi --> Routes : Webhooks
+Cloudinary --> Services : Image URLs
+Resend --> Services : Email Confirmations
+
+note right of FastAPI
+  **FastAPI Application**
+  - RESTful API Endpoints
+  - Request/Response Handling
+  - Error Handling
+  - CORS Configuration
+end note
+
+note right of BusinessLogic
+  **Business Logic Layer**
+  - Feature Access Control
+  - Subscription Management
+  - Payment Processing
+  - Notification Creation
+end note
+
+note right of ORM
+  **Data Access Layer**
+  - SQLAlchemy ORM
+  - Relationship Management
+  - Transaction Handling
+  - Query Optimization
+end note
+
+@enduml
+
+' ============================================
+' Component Diagram
+' ============================================
+@startuml Component_Diagram
+title Component Architecture
+
+package "API Components" {
+    [Auth API] as AuthAPI
+    [Organization API] as OrgAPI
+    [Employee API] as EmployeeAPI
+    [Attendance API] as AttendanceAPI
+    [Leave Request API] as LeaveAPI
+    [Payroll API] as PayrollAPI
+    [Subscription API] as SubAPI
+    [Dashboard API] as DashboardAPI
+    [Notification API] as NotifAPI
+}
+
+package "Core Services" {
+    [Authentication Service] as AuthService
+    [Authorization Service] as AuthzService
+    [Subscription Service] as SubService
+    [Notification Service] as NotifService
+}
+
+package "External Services" {
+    [Fapshi Service] as FapshiService
+    [Cloudinary Service] as CloudService
+    [Email Service] as EmailService
+}
+
+package "Utilities" {
+    [Geofence Utils] as GeofenceUtils
+    [Code Generators] as CodeGen
+    [OTP Utils] as OTPUtils
+    [Feature Utils] as FeatureUtils
+}
+
+database "PostgreSQL" as DB
+
+' API to Services
+AuthAPI --> AuthService
+OrgAPI --> AuthzService
+EmployeeAPI --> AuthzService
+AttendanceAPI --> AuthzService
+LeaveAPI --> AuthzService
+PayrollAPI --> AuthzService
+SubAPI --> SubService
+DashboardAPI --> AuthzService
+NotifAPI --> NotifService
+
+' Services to External Services
+SubService --> FapshiService
+OrgAPI --> CloudService
+EmployeeAPI --> CloudService
+NotifService --> EmailService
+AuthService --> EmailService
+
+' Services to Utilities
+AttendanceAPI --> GeofenceUtils
+OrgAPI --> CodeGen
+EmployeeAPI --> CodeGen
+AuthService --> OTPUtils
+AuthzService --> FeatureUtils
+
+' Services to Database
+AuthService --> DB
+AuthzService --> DB
+SubService --> DB
+NotifService --> DB
+OrgAPI --> DB
+EmployeeAPI --> DB
+AttendanceAPI --> DB
+LeaveAPI --> DB
+PayrollAPI --> DB
+DashboardAPI --> DB
+
+note right of AuthzService
+  **Authorization Service**
+  - Role-based Access Control
+  - Feature-based Access Control
+  - Subscription Validation
+end note
+
+note right of SubService
+  **Subscription Service**
+  - Plan Management
+  - Payment Processing
+  - Status Updates
+end note
+
+@enduml
+
+' ============================================
+' Deployment Diagram
+' ============================================
+@startuml Deployment_Diagram
+title Deployment Architecture
+
+node "Client Devices" {
+    [Web Browser] as Browser
+    [Mobile App] as Mobile
+}
+
+cloud "Internet" as Internet
+
+node "Application Server" {
+    component [FastAPI App] as App {
+        component [Uvicorn Server] as Server
+        component [API Workers] as Workers
+    }
+}
+
+node "Database Server" {
+    database "PostgreSQL" as DB {
+        component [Connection Pool] as Pool
+        component [Data Storage] as Storage
+    }
+}
+
+cloud "External Services" {
+    [Fapshi Gateway] as Fapshi
+    [Cloudinary CDN] as Cloudinary
+    [Resend Email] as Resend
+}
+
+Browser --> Internet
+Mobile --> Internet
+Internet --> App
+App --> Server
+Server --> Workers
+Workers --> Pool
+Pool --> Storage
+Workers --> Fapshi
+Workers --> Cloudinary
+Workers --> Resend
+Fapshi --> Workers : Webhooks
+
+note right of App
+  **Application Server**
+  - FastAPI Application
+  - Multiple Workers (4+)
+  - Load Balancing
+  - Request Handling
+end note
+
+note right of DB
+  **Database Server**
+  - PostgreSQL 12+
+  - Connection Pooling
+  - Replication (Optional)
+  - Backup Strategy
+end note
+
+@enduml
+
+' ============================================
+' Request Flow Diagram
+' ============================================
+@startuml Request_Flow
+title Request Flow Architecture
+
+actor User
+participant "FastAPI Middleware" as Middleware
+participant "Route Handler" as Handler
+participant "Dependency Injection" as DI
+participant "Business Logic" as Logic
+participant "Data Access Layer" as DAL
+database "PostgreSQL" as DB
+
+User -> Middleware: HTTP Request
+activate Middleware
+
+Middleware -> Middleware: CORS Check
+Middleware -> Middleware: Request Logging
+
+Middleware -> Handler: Forward Request
+activate Handler
+
+Handler -> DI: Get Dependencies\n(Auth, DB Session)
+activate DI
+
+DI -> DI: Validate JWT Token
+DI -> DI: Get Current User
+DI -> DI: Get DB Session
+
+DI --> Handler: Dependencies Ready
+deactivate DI
+
+Handler -> Logic: Execute Business Logic
+activate Logic
+
+Logic -> Logic: Validate Input
+Logic -> Logic: Check Permissions
+Logic -> Logic: Apply Business Rules
+
+Logic -> DAL: Database Operations
+activate DAL
+
+DAL -> DB: SQL Query
+activate DB
+DB --> DAL: Query Results
+deactivate DB
+
+DAL --> Logic: Data Retrieved
+deactivate DAL
+
+Logic --> Handler: Business Logic Complete
+deactivate Logic
+
+Handler -> Handler: Format Response
+
+Handler --> Middleware: JSON Response
+deactivate Handler
+
+Middleware -> Middleware: Response Logging
+Middleware --> User: HTTP Response
+deactivate Middleware
+
+@enduml
+
+' ============================================
+' Security Architecture
+' ============================================
+@startuml Security_Architecture
+title Security Architecture
+
+package "Security Layers" {
+    component [Input Validation] as InputVal {
+        [Pydantic Schemas] as Schemas
+        [Type Checking] as TypeCheck
+        [Constraint Validation] as Constraint
+    }
+    
+    component [Authentication] as Auth {
+        [JWT Validation] as JWT
+        [Token Expiration] as TokenExp
+        [Signature Verification] as Signature
+    }
+    
+    component [Authorization] as Authz {
+        [Role-Based Access] as RBAC
+        [Feature-Based Access] as FBAC
+        [Data Isolation] as Isolation
+    }
+    
+    component [Data Protection] as DataProt {
+        [Password Hashing] as PasswordHash
+        [Token Hashing] as TokenHash
+        [SQL Injection Prevention] as SQLInj
+    }
+    
+    component [External Security] as ExtSec {
+        [API Key Management] as APIKeys
+        [HTTPS] as HTTPS
+        [Credential Storage] as Credentials
+    }
+}
+
+[Client Request] --> InputVal
+InputVal --> Auth
+Auth --> Authz
+Authz --> DataProt
+DataProt --> ExtSec
+ExtSec --> [External Services]
+
+note right of InputVal
+  **Input Validation**
+  - Schema Validation
+  - Type Checking
+  - Constraint Validation
+end note
+
+note right of Auth
+  **Authentication**
+  - JWT Tokens
+  - Token Expiration
+  - Signature Verification
+end note
+
+note right of Authz
+  **Authorization**
+  - Admin/Employee Roles
+  - Subscription Features
+  - Organization Isolation
+end note
+
+@enduml
+
+@enduml

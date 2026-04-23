@@ -356,24 +356,17 @@ async def set_geofence(
     """
     Set geofence coordinates for the organization.
     Uses the admin's current device location and sets a 300m radius.
-    Requires Standard or Enterprise plan.
     """
     try:
-        # Check geofencing feature access
+        # Resolve org context via open access dependency.
         from app.core.subscription_access import create_feature_requirement
         from app.utils.subscription_features import Feature
         
         require_geofencing = create_feature_requirement(Feature.GEOFENCING)
-        try:
-            organization, subscription = await require_geofencing(
-                current_user=current_user,
-                db=db
-            )
-        except HTTPException as e:
-            return error_response(
-                message=e.detail,
-                status_code=e.status_code
-            )
+        organization, _subscription = await require_geofencing(
+            current_user=current_user,
+            db=db
+        )
         
         # Validate latitude and longitude
         if not (-90 <= request.latitude <= 90):

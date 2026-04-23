@@ -1,0 +1,328 @@
+@startuml Sequence_Diagrams
+!theme plain
+skinparam sequenceArrowThickness 2
+skinparam roundcorner 20
+skinparam maxmessagesize 60
+
+title Attendeely System - Sequence Diagrams
+
+' ============================================
+' Diagram 1: Admin Signup and Email Verification
+' ============================================
+@startuml Admin_Signup_Flow
+title Admin Signup and Email Verification Flow
+
+actor Admin
+participant "Attendeely API" as API
+database PostgreSQL
+participant "Resend Email" as Email
+
+Admin -> API: POST /auth/signup\n(email, password, full_name)
+activate API
+
+API -> PostgreSQL: INSERT User\n(is_email_verified=false)
+activate PostgreSQL
+PostgreSQL --> API: User Created
+deactivate PostgreSQL
+
+API -> PostgreSQL: INSERT OTP\n(code, expires_at)
+activate PostgreSQL
+PostgreSQL --> API: OTP Created
+deactivate PostgreSQL
+
+API -> Email: Send OTP Email
+activate Email
+Email --> API: Email Sent
+deactivate Email
+
+API --> Admin: Response (Success)\nOTP sent to email
+deactivate API
+
+Admin -> API: POST /auth/verify-otp\n(otp_code)
+activate API
+
+API -> PostgreSQL: SELECT OTP\n(by code, user_id)
+activate PostgreSQL
+PostgreSQL --> API: OTP Record
+deactivate PostgreSQL
+
+alt OTP Valid and Not Expired
+    API -> PostgreSQL: UPDATE User\n(is_email_verified=true)
+    activate PostgreSQL
+    PostgreSQL --> API: User Updated
+    deactivate PostgreSQL
+    
+    API --> Admin: Response (Email Verified)
+else OTP Invalid or Expired
+    API --> Admin: Error Response\n(Invalid OTP)
+end
+
+deactivate API
+@enduml
+
+' ============================================
+' Diagram 2: Employee Check-In Flow
+' ============================================
+@startuml Employee_CheckIn_Flow
+title Employee Check-In Flow
+
+actor Employee
+participant "Attendeely API" as API
+database PostgreSQL
+
+Employee -> API: POST /employee/attendance/check-in\n(latitude, longitude)
+activate API
+
+API -> PostgreSQL: SELECT Organization\n(by org_code)
+activate PostgreSQL
+PostgreSQL --> API: Organization\n(geofence data)
+deactivate PostgreSQL
+
+API -> API: Validate Geofence\n(Haversine formula)
+
+alt Within Geofence
+    API -> PostgreSQL: SELECT Attendance\n(today's check-in)
+    activate PostgreSQL
+    PostgreSQL --> API: No Record Found
+    deactivate PostgreSQL
+    
+    alt No Check-in Today
+        API -> PostgreSQL: INSERT Attendance\n(type=CHECK_IN)
+        activate PostgreSQL
+        PostgreSQL --> API: Attendance Created
+        deactivate PostgreSQL
+        
+        API -> PostgreSQL: INSERT Notification
+        activate PostgreSQL
+        PostgreSQL --> API: Notification Created
+        deactivate PostgreSQL
+        
+        API --> Employee: Response (Check-in Success)
+    else Already Checked In
+        API --> Employee: Error Response\n(Already checked in today)
+    end
+else Outside Geofence
+    API --> Employee: Error Response\n(Outside geofence)
+end
+
+deactivate API
+@enduml
+
+' ============================================
+' Diagram 3: Leave Request Creation and Approval
+' ============================================
+@startuml Leave_Request_Flow
+title Leave Request Creation and Approval Flow
+
+actor Employee
+participant "Attendeely API" as API
+database PostgreSQL
+actor Admin
+participant "Resend Email" as Email
+
+Employee -> API: POST /leave-requests/create\n(type, dates, reason)
+activate API
+
+API -> PostgreSQL: INSERT LeaveRequest\n(status=PENDING)
+activate PostgreSQL
+PostgreSQL --> API: Request Created
+deactivate PostgreSQL
+
+API -> PostgreSQL: INSERT Notification\n(for admin)
+activate PostgreSQL
+PostgreSQL --> API: Notification Created
+deactivate PostgreSQL
+
+API -> Email: Send Email Notification\n(to admin)
+activate Email
+Email --> API: Email Sent
+deactivate Email
+
+API --> Employee: Response (Request Created)
+deactivate API
+
+Admin -> API: GET /leave-requests/pending
+activate API
+
+API -> PostgreSQL: SELECT LeaveRequests\n(status=PENDING)
+activate PostgreSQL
+PostgreSQL --> API: Pending Requests
+deactivate PostgreSQL
+
+API --> Admin: Response (Pending Requests)
+deactivate API
+
+Admin -> API: PUT /leave-requests/{id}/approve
+activate API
+
+API -> PostgreSQL: SELECT LeaveRequest
+activate PostgreSQL
+PostgreSQL --> API: Request Found
+deactivate PostgreSQL
+
+API -> PostgreSQL: UPDATE LeaveRequest\n(status=APPROVED)
+activate PostgreSQL
+PostgreSQL --> API: Request Updated
+deactivate PostgreSQL
+
+alt Full Day Leave
+    API -> PostgreSQL: INSERT Attendance\n(excused records)
+    activate PostgreSQL
+    PostgreSQL --> API: Attendance Created
+    deactivate PostgreSQL
+end
+
+API -> PostgreSQL: INSERT Notification\n(for employee)
+activate PostgreSQL
+PostgreSQL --> API: Notification Created
+deactivate PostgreSQL
+
+API -> Email: Send Email Notification\n(to employee)
+activate Email
+Email --> API: Email Sent
+deactivate Email
+
+API --> Admin: Response (Request Approved)
+deactivate API
+@enduml
+
+' ============================================
+' Diagram 4: Subscription Signup and Payment Flow
+' ============================================
+@startuml Subscription_Payment_Flow
+title Subscription Signup and Payment Flow
+
+actor Admin
+participant "Attendeely API" as API
+database PostgreSQL
+participant "Fapshi Gateway" as Fapshi
+
+Admin -> API: POST /subscription/subscribe\n(plan_id)
+activate API
+
+API -> PostgreSQL: SELECT SubscriptionPlan\n(by plan_id)
+activate PostgreSQL
+PostgreSQL --> API: Plan Details
+deactivate PostgreSQL
+
+API -> PostgreSQL: SELECT Subscription\n(by organization_id)
+activate PostgreSQL
+PostgreSQL --> API: Existing Subscription
+deactivate PostgreSQL
+
+API -> PostgreSQL: UPDATE Subscription\n(status=PENDING)
+activate PostgreSQL
+PostgreSQL --> API: Subscription Updated
+deactivate PostgreSQL
+
+API -> PostgreSQL: INSERT Payment\n(status=INITIATED)
+activate PostgreSQL
+PostgreSQL --> API: Payment Created
+deactivate PostgreSQL
+
+API -> Fapshi: Initiate Payment\n(amount, phone, email, externalId)
+activate Fapshi
+Fapshi --> API: Response (transId)
+deactivate Fapshi
+
+API -> PostgreSQL: UPDATE Payment\n(provider_ref=transId)
+activate PostgreSQL
+PostgreSQL --> API: Payment Updated
+deactivate PostgreSQL
+
+API --> Admin: Response (Payment Initiated)\n(transId, payment_url)
+deactivate API
+
+... Payment Processing ...
+
+Fapshi -> API: POST /subscription/webhook\n(transId, status, externalId)
+activate API
+
+API -> PostgreSQL: SELECT Payment\n(by transId)
+activate PostgreSQL
+PostgreSQL --> API: Payment Found
+deactivate PostgreSQL
+
+alt Payment Successful
+    API -> PostgreSQL: UPDATE Payment\n(status=SUCCESS)
+    activate PostgreSQL
+    PostgreSQL --> API: Payment Updated
+    deactivate PostgreSQL
+    
+    API -> PostgreSQL: UPDATE Subscription\n(status=ACTIVE)
+    activate PostgreSQL
+    PostgreSQL --> API: Subscription Updated
+    deactivate PostgreSQL
+    
+    API -> PostgreSQL: UPDATE Organization\n(plan)
+    activate PostgreSQL
+    PostgreSQL --> API: Organization Updated
+    deactivate PostgreSQL
+    
+    API -> PostgreSQL: INSERT Notification
+    activate PostgreSQL
+    PostgreSQL --> API: Notification Created
+    deactivate PostgreSQL
+    
+    API --> Fapshi: Response (OK)
+else Payment Failed
+    API -> PostgreSQL: UPDATE Payment\n(status=FAILED)
+    activate PostgreSQL
+    PostgreSQL --> API: Payment Updated
+    deactivate PostgreSQL
+    
+    API -> PostgreSQL: UPDATE Subscription\n(status=FAILED)
+    activate PostgreSQL
+    PostgreSQL --> API: Subscription Updated
+    deactivate PostgreSQL
+    
+    API --> Fapshi: Response (OK)
+end
+
+deactivate API
+@enduml
+
+' ============================================
+' Diagram 5: Payroll Processing Flow
+' ============================================
+@startuml Payroll_Processing_Flow
+title Payroll Processing Flow
+
+actor Admin
+participant "Attendeely API" as API
+database PostgreSQL
+
+Admin -> API: POST /payroll/process\n(year, month)
+activate API
+
+API -> API: Validate Plan\n(Standard/Enterprise)
+
+API -> PostgreSQL: SELECT Employees\n(active, organization_id)
+activate PostgreSQL
+PostgreSQL --> API: Employee List
+deactivate PostgreSQL
+
+loop For Each Employee
+    API -> PostgreSQL: SELECT Attendance\n(for period)
+    activate PostgreSQL
+    PostgreSQL --> API: Attendance Records
+    deactivate PostgreSQL
+    
+    API -> API: Calculate:\n- Attendance Days\n- Working Days\n- Base Salary\n- Net Pay
+    
+    API -> PostgreSQL: UPSERT PayrollRecord\n(unique: employee, year, month)
+    activate PostgreSQL
+    PostgreSQL --> API: Payroll Record Created/Updated
+    deactivate PostgreSQL
+end
+
+API -> PostgreSQL: INSERT Notification
+activate PostgreSQL
+PostgreSQL --> API: Notification Created
+deactivate PostgreSQL
+
+API --> Admin: Response (Payroll Processed)
+deactivate API
+@enduml
+
+@enduml

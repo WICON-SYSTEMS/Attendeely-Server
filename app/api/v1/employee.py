@@ -69,18 +69,12 @@ async def create_employee(
         # Get user's organization
         organization = get_user_organization(db, current_user)
         
-        # Check employee limit based on subscription
+        # Subscription gating is open; this now always succeeds.
         from app.core.subscription_access import check_employee_limit
-        try:
-            organization, subscription = await check_employee_limit(
-                current_user=current_user,
-                db=db
-            )
-        except HTTPException as e:
-            return error_response(
-                message=e.detail,
-                status_code=e.status_code
-            )
+        organization, _subscription = await check_employee_limit(
+            current_user=current_user,
+            db=db
+        )
         
         # Validate email is not already used in this organization
         existing_employee = db.query(Employee).filter(

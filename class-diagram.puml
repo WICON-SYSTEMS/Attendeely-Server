@@ -1,0 +1,409 @@
+@startuml Class_Diagram
+!theme plain
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+
+title Attendeely System - Class Diagram (Database Models)
+
+' ============================================
+' Core Models
+' ============================================
+
+class User {
+  +id: Integer [PK]
+  +full_name: String
+  +email: String [Unique]
+  +hashed_password: String
+  +is_super_admin: Boolean
+  +is_email_verified: Boolean
+  +is_active: Boolean
+  +reset_token: String
+  +reset_token_expiry: DateTime
+  +created_at: DateTime
+  +updated_at: DateTime
+  --
+  +otps: OTP[]
+  +organization: Organization
+  +notifications: Notification[]
+  +feedback: Feedback[]
+  +payments: Payment[]
+}
+
+class Organization {
+  +id: Integer [PK]
+  +organization_name: String
+  +organization_code: String(8) [Unique]
+  +logo_url: String
+  +industry: String
+  +employees_count_range: String
+  +country: String
+  +currency: String
+  +plan: String
+  +admin_id: Integer [FK]
+  +geofence_latitude: Numeric(10,8)
+  +geofence_longitude: Numeric(11,8)
+  +geofence_radius: Numeric(10,2)
+  +is_active: Boolean
+  +created_at: DateTime
+  +updated_at: DateTime
+  --
+  +admin: User
+  +employees: Employee[]
+  +payroll_records: PayrollRecord[]
+  +subscription: Subscription
+}
+
+class Employee {
+  +id: UUID [PK]
+  +full_name: String
+  +email: String
+  +phone_number: String
+  +gender: Gender [Enum]
+  +date_of_birth: Date
+  +department: String
+  +job_title: String
+  +work_type: WorkType [Enum]
+  +joining_date: Date
+  +role: EmployeeRole [Enum]
+  +photo_url: String
+  +shift: String
+  +salary_per_hour: Numeric(10,2)
+  +employee_code: String(10)
+  +qr_code: String(64) [Unique]
+  +organization_id: Integer [FK]
+  +is_active: Boolean
+  +created_at: DateTime
+  +updated_at: DateTime
+  --
+  +organization: Organization
+  +attendances: Attendance[]
+  +sessions: EmployeeSession[]
+  +leave_requests: LeaveRequest[]
+  +notifications: Notification[]
+  +payroll_records: PayrollRecord[]
+  +feedback: Feedback[]
+}
+
+class Attendance {
+  +id: UUID [PK]
+  +employee_id: UUID [FK]
+  +attendance_type: AttendanceType [Enum]
+  +timestamp: DateTime
+  +location_latitude: String
+  +location_longitude: String
+  +notes: String
+  +hours_worked: Numeric(5,2)
+  +check_in_id: UUID [FK]
+  +created_at: DateTime
+  --
+  +employee: Employee
+  +check_in_record: Attendance
+}
+
+class EmployeeSession {
+  +id: UUID [PK]
+  +employee_id: UUID [FK]
+  +token_hash: String [Unique]
+  +is_active: Boolean
+  +created_at: DateTime
+  +expires_at: DateTime
+  --
+  +employee: Employee
+}
+
+class LeaveRequest {
+  +id: UUID [PK]
+  +employee_id: UUID [FK]
+  +request_type: LeaveRequestType [Enum]
+  +custom_type: String
+  +start_date: DateTime
+  +end_date: DateTime
+  +reason: Text
+  +status: LeaveRequestStatus [Enum]
+  +reviewer_id: Integer [FK]
+  +review_time: DateTime
+  +review_notes: Text
+  +is_full_day: Boolean
+  +hours_deducted: Numeric(5,2)
+  +created_at: DateTime
+  +updated_at: DateTime
+  --
+  +employee: Employee
+  +reviewer: User
+}
+
+class PayrollRecord {
+  +id: UUID [PK]
+  +organization_id: Integer [FK]
+  +employee_id: UUID [FK]
+  +period_year: Integer
+  +period_month: Integer
+  +base_salary: Numeric(12,2)
+  +attendance_days: Integer
+  +working_days: Integer
+  +deductions: Numeric(12,2)
+  +bonus: Numeric(12,2)
+  +net_pay: Numeric(12,2)
+  +status: PayrollStatus [Enum]
+  +processed_at: DateTime
+  +notes: String
+  +created_at: DateTime
+  +updated_at: DateTime
+  --
+  +organization: Organization
+  +employee: Employee
+}
+
+class SubscriptionPlan {
+  +id: Integer [PK]
+  +name: String(50) [Unique]
+  +amount: Numeric(10,2)
+  +currency: String(3)
+  +interval: String(20)
+  +is_active: Boolean
+  +description: String(500)
+  +created_at: DateTime
+  +updated_at: DateTime
+  --
+  +subscriptions: Subscription[]
+}
+
+class Subscription {
+  +id: Integer [PK]
+  +organization_id: Integer [FK, Unique]
+  +plan_id: Integer [FK]
+  +plan: SubscriptionPlanEnum [Enum]
+  +status: SubscriptionStatus [Enum]
+  +start_date: DateTime
+  +next_billing_date: DateTime
+  +last_paid_date: DateTime
+  +grace_ends_at: DateTime
+  +trial_start_date: DateTime
+  +trial_end_date: DateTime
+  +subscription_start_date: DateTime
+  +subscription_end_date: DateTime
+  +monthly_price: Numeric(10,2)
+  +is_active: Boolean
+  +created_at: DateTime
+  +updated_at: DateTime
+  --
+  +organization: Organization
+  +plan_details: SubscriptionPlan
+  +payments: Payment[]
+}
+
+class Payment {
+  +id: Integer [PK]
+  +user_id: Integer [FK]
+  +subscription_id: Integer [FK]
+  +amount: Numeric(10,2)
+  +currency: String(3)
+  +status: PaymentStatus [Enum]
+  +provider: PaymentProvider [Enum]
+  +provider_ref: String(255) [Unique]
+  +provider_response: String
+  +created_at: DateTime
+  +updated_at: DateTime
+  --
+  +user: User
+  +subscription: Subscription
+}
+
+class OTP {
+  +id: Integer [PK]
+  +user_id: Integer [FK]
+  +code: String(6)
+  +expires_at: DateTime
+  +is_used: Boolean
+  +created_at: DateTime
+  --
+  +user: User
+}
+
+class Notification {
+  +id: UUID [PK]
+  +recipient_type: NotificationRecipient [Enum]
+  +user_id: Integer [FK]
+  +employee_id: UUID [FK]
+  +title: String(150)
+  +message: String
+  +category: NotificationCategory [Enum]
+  +payload: JSON
+  +is_read: Boolean
+  +read_at: DateTime
+  +created_at: DateTime
+  --
+  +user: User
+  +employee: Employee
+}
+
+class Feedback {
+  +id: UUID [PK]
+  +user_id: Integer [FK]
+  +employee_id: UUID [FK]
+  +description: Text
+  +image_url: String
+  +created_at: DateTime
+  --
+  +user: User
+  +employee: Employee
+}
+
+' ============================================
+' Enumerations
+' ============================================
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum WorkType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERN
+}
+
+enum EmployeeRole {
+  ADMIN
+  HR_MANAGER
+  STAFF
+}
+
+enum AttendanceType {
+  CHECK_IN
+  CHECK_OUT
+}
+
+enum LeaveRequestType {
+  PERMISSION
+  LEAVE
+  SICK
+  VACATION
+  CUSTOM
+}
+
+enum LeaveRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum SubscriptionStatus {
+  PENDING
+  ACTIVE
+  TRIAL
+  PAST_DUE
+  EXPIRED
+  CANCELLED
+  FAILED
+}
+
+enum PaymentStatus {
+  INITIATED
+  SUCCESS
+  FAILED
+}
+
+enum PaymentProvider {
+  FAPSHI
+}
+
+enum PayrollStatus {
+  PENDING
+  PAID
+}
+
+enum NotificationCategory {
+  GENERAL
+  LEAVE
+  ATTENDANCE
+  SYSTEM
+}
+
+enum NotificationRecipient {
+  USER
+  EMPLOYEE
+}
+
+' ============================================
+' Relationships
+' ============================================
+
+' One-to-One Relationships
+User ||--|| Organization : "admin_id"
+Organization ||--|| Subscription : "organization_id"
+
+' One-to-Many Relationships
+User ||--o{ OTP : "user_id"
+User ||--o{ Notification : "user_id"
+User ||--o{ Feedback : "user_id"
+User ||--o{ Payment : "user_id"
+
+Organization ||--o{ Employee : "organization_id"
+Organization ||--o{ PayrollRecord : "organization_id"
+
+Employee ||--o{ Attendance : "employee_id"
+Employee ||--o{ EmployeeSession : "employee_id"
+Employee ||--o{ LeaveRequest : "employee_id"
+Employee ||--o{ Notification : "employee_id"
+Employee ||--o{ PayrollRecord : "employee_id"
+Employee ||--o{ Feedback : "employee_id"
+
+SubscriptionPlan ||--o{ Subscription : "plan_id"
+Subscription ||--o{ Payment : "subscription_id"
+
+' Many-to-One Relationships
+Employee }o--|| Organization : "organization_id"
+Attendance }o--|| Employee : "employee_id"
+LeaveRequest }o--|| Employee : "employee_id"
+LeaveRequest }o--|| User : "reviewer_id"
+PayrollRecord }o--|| Organization : "organization_id"
+PayrollRecord }o--|| Employee : "employee_id"
+Payment }o--|| User : "user_id"
+Payment }o--|| Subscription : "subscription_id"
+OTP }o--|| User : "user_id"
+Notification }o--|| User : "user_id"
+Notification }o--|| Employee : "employee_id"
+Feedback }o--|| User : "user_id"
+Feedback }o--|| Employee : "employee_id"
+
+' Self-Referential Relationship
+Attendance }o--|| Attendance : "check_in_id"
+
+note right of User
+  **Admin users who manage**
+  organizations. Can be regular
+  admin or super admin.
+end note
+
+note right of Organization
+  **Company/organization using**
+  the system. Each organization
+  has one admin and multiple
+  employees.
+end note
+
+note right of Employee
+  **Employee within an**
+  organization. Has unique
+  code within organization
+  and QR code for identification.
+end note
+
+note right of Subscription
+  **Organization's subscription.**
+  Tracks status, billing dates,
+  and payment history.
+end note
+
+note right of Payment
+  **Payment transactions for**
+  subscriptions. Links to Fapshi
+  via provider_ref (transId).
+end note
+
+@enduml

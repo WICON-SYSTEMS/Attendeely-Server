@@ -1,0 +1,231 @@
+@startuml UseCase_Diagram
+!theme plain
+skinparam actorStyle awesome
+skinparam usecaseStyle rectangle
+
+title Attendeely System - Use Case Diagram
+
+' Actors
+actor "Admin/Manager" as Admin
+actor "Employee" as Employee
+actor "Super Admin" as SuperAdmin
+actor "System" as System
+
+' Admin Use Cases - Authentication
+package "Authentication & Account Management" {
+    usecase "Sign Up" as UC_A1
+    usecase "Verify Email (OTP)" as UC_A2
+    usecase "Resend OTP" as UC_A3
+    usecase "Login" as UC_A4
+    usecase "Forgot Password" as UC_A5
+    usecase "Reset Password" as UC_A6
+    usecase "View Profile" as UC_A7
+}
+
+' Admin Use Cases - Organization
+package "Organization Management" {
+    usecase "Create Organization" as UC_A8
+    usecase "View Organization" as UC_A9
+    usecase "Update Organization" as UC_A10
+    usecase "Set Geofence" as UC_A11
+}
+
+' Admin Use Cases - Employee Management
+package "Employee Management" {
+    usecase "Create Employee" as UC_A12
+    usecase "List Employees" as UC_A13
+    usecase "Get Employee by Code" as UC_A14
+    usecase "Update Employee" as UC_A15
+    usecase "Delete Employee" as UC_A16
+}
+
+' Admin Use Cases - Leave Requests
+package "Leave Request Management" {
+    usecase "View Pending Requests" as UC_A17
+    usecase "View All Requests" as UC_A18
+    usecase "Approve Leave Request" as UC_A19
+    usecase "Reject Leave Request" as UC_A20
+}
+
+' Admin Use Cases - Payroll
+package "Payroll Management" {
+    usecase "Process Payroll" as UC_A21
+    usecase "View Payroll Summary" as UC_A22
+    usecase "View Employee Payroll" as UC_A23
+    usecase "Update Payroll Record" as UC_A24
+}
+
+' Admin Use Cases - Dashboard
+package "Dashboard & Analytics" {
+    usecase "View Dashboard Overview" as UC_A25
+    usecase "View Attendance Trends" as UC_A26
+    usecase "View Late/Absent Breakdown" as UC_A27
+}
+
+' Admin Use Cases - Subscription
+package "Subscription Management" {
+    usecase "View Plans" as UC_A28
+    usecase "View Current Subscription" as UC_A29
+    usecase "Subscribe to Plan" as UC_A30
+    usecase "Cancel Subscription" as UC_A31
+    usecase "View Payment History" as UC_A32
+    usecase "View Status by Transaction ID" as UC_A33
+}
+
+' Admin Use Cases - Notifications
+package "Notifications" {
+    usecase "View Notifications" as UC_A34
+    usecase "Mark Notification as Read" as UC_A35
+    usecase "Mark All as Read" as UC_A36
+}
+
+' Employee Use Cases - Authentication
+package "Employee Authentication" {
+    usecase "Employee Login" as UC_E1
+    usecase "Refresh Token" as UC_E2
+    usecase "Employee Logout" as UC_E3
+}
+
+' Employee Use Cases - Attendance
+package "Attendance" {
+    usecase "Check In" as UC_E4
+    usecase "Check Out" as UC_E5
+    usecase "View Attendance History" as UC_E6
+    usecase "View Today's Attendance" as UC_E7
+}
+
+' Employee Use Cases - Leave Requests
+package "Employee Leave Requests" {
+    usecase "Create Leave Request" as UC_E8
+    usecase "View My Requests" as UC_E9
+    usecase "View Request Details" as UC_E10
+    usecase "Cancel Request" as UC_E11
+}
+
+' Employee Use Cases - Profile
+package "Profile & Information" {
+    usecase "View Profile" as UC_E12
+    usecase "Submit Feedback" as UC_E13
+}
+
+' Employee Use Cases - Notifications
+package "Employee Notifications" {
+    usecase "View Notifications" as UC_E14
+    usecase "Mark Notification as Read" as UC_E15
+    usecase "Mark All as Read" as UC_E16
+}
+
+' Super Admin Use Cases
+package "Super Admin" {
+    usecase "View All Organizations" as UC_S1
+    usecase "View Organization Details" as UC_S2
+    usecase "View System Analytics" as UC_S3
+}
+
+' System Use Cases
+package "System Automation" {
+    usecase "Process Payment Webhook" as UC_SYS1
+    usecase "Send Email Notifications" as UC_SYS2
+    usecase "Create Notification Records" as UC_SYS3
+    usecase "Auto-expire Subscriptions" as UC_SYS4
+    usecase "Auto-adjust Attendance" as UC_SYS5
+}
+
+' Admin Relationships
+Admin --> UC_A1
+Admin --> UC_A2
+Admin --> UC_A3
+Admin --> UC_A4
+Admin --> UC_A5
+Admin --> UC_A6
+Admin --> UC_A7
+Admin --> UC_A8
+Admin --> UC_A9
+Admin --> UC_A10
+Admin --> UC_A11
+Admin --> UC_A12
+Admin --> UC_A13
+Admin --> UC_A14
+Admin --> UC_A15
+Admin --> UC_A16
+Admin --> UC_A17
+Admin --> UC_A18
+Admin --> UC_A19
+Admin --> UC_A20
+Admin --> UC_A21
+Admin --> UC_A22
+Admin --> UC_A23
+Admin --> UC_A24
+Admin --> UC_A25
+Admin --> UC_A26
+Admin --> UC_A27
+Admin --> UC_A28
+Admin --> UC_A29
+Admin --> UC_A30
+Admin --> UC_A31
+Admin --> UC_A32
+Admin --> UC_A33
+Admin --> UC_A34
+Admin --> UC_A35
+Admin --> UC_A36
+
+' Employee Relationships
+Employee --> UC_E1
+Employee --> UC_E2
+Employee --> UC_E3
+Employee --> UC_E4
+Employee --> UC_E5
+Employee --> UC_E6
+Employee --> UC_E7
+Employee --> UC_E8
+Employee --> UC_E9
+Employee --> UC_E10
+Employee --> UC_E11
+Employee --> UC_E12
+Employee --> UC_E13
+Employee --> UC_E14
+Employee --> UC_E15
+Employee --> UC_E16
+
+' Super Admin Relationships
+SuperAdmin --> UC_S1
+SuperAdmin --> UC_S2
+SuperAdmin --> UC_S3
+
+' System Relationships
+System --> UC_SYS1
+System --> UC_SYS2
+System --> UC_SYS3
+System --> UC_SYS4
+System --> UC_SYS5
+
+' Include Relationships
+UC_A12 ..> (Check Employee Limit) : <<include>>
+UC_A19 ..> (Create Excused Attendance) : <<include>>
+UC_A21 ..> (Calculate Attendance Days) : <<include>>
+UC_E4 ..> (Validate Geofence) : <<include>>
+UC_E5 ..> (Validate Geofence) : <<include>>
+UC_E4 ..> (Validate Single Check-in) : <<include>>
+UC_E8 ..> (Send Notification to Admin) : <<include>>
+
+' Extend Relationships
+UC_A30 ..> (Payment Processing) : <<extend>>
+UC_E1 ..> (Single Device Validation) : <<extend>>
+
+note right of UC_A11
+  Requires Standard or
+  Enterprise plan
+end note
+
+note right of UC_A21
+  Requires Standard or
+  Enterprise plan
+  (Automated Payroll)
+end note
+
+note right of UC_A30
+  Initiates payment via
+  Fapshi gateway
+end note
+
+@enduml

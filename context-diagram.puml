@@ -1,0 +1,98 @@
+@startuml Context_Diagram
+!theme plain
+skinparam componentStyle rectangle
+skinparam linetype ortho
+
+title Attendeely System - Context Diagram
+
+' External Actors
+actor "Admin/Manager" as Admin
+actor "Employee" as Employee
+actor "Super Admin" as SuperAdmin
+
+' System Boundary
+package "Attendeely Backend API" {
+    component [FastAPI Application] as API {
+        component [API Endpoints] as Endpoints
+        component [Business Logic] as Logic
+        component [Authentication] as Auth
+    }
+}
+
+' External Systems
+database "PostgreSQL\nDatabase" as DB
+cloud "Fapshi\nPayment Gateway" as Fapshi
+cloud "Cloudinary\nImage Storage" as Cloudinary
+cloud "Resend\nEmail Service" as Resend
+rectangle "Frontend\nApplication" as Frontend
+
+' Relationships - Admin
+Admin --> Endpoints : HTTP Requests\n(Signup, Login, Manage Org)
+Admin --> Endpoints : Manage Employees
+Admin --> Endpoints : Process Payroll
+Admin --> Endpoints : Manage Subscriptions
+Admin --> Endpoints : View Dashboard
+
+' Relationships - Employee
+Employee --> Endpoints : HTTP Requests\n(Login, Check-in/out)
+Employee --> Endpoints : Submit Leave Requests
+Employee --> Endpoints : View Profile
+
+' Relationships - Super Admin
+SuperAdmin --> Endpoints : System-wide\nManagement
+
+' Relationships - Frontend
+Frontend --> Endpoints : HTTP/REST API\nJSON Requests
+Endpoints --> Frontend : JSON Responses
+
+' Relationships - Database
+Endpoints --> DB : SQL Queries\n(CRUD Operations)
+DB --> Endpoints : Query Results
+
+' Relationships - External Services
+Logic --> Fapshi : Payment Initiation\n(amount, phone, email)
+Fapshi --> Endpoints : Payment Webhooks\n(transId, status)
+Logic --> Cloudinary : Image Upload\n(logo, photos)
+Cloudinary --> Logic : Image URLs
+Logic --> Resend : Send Emails\n(OTP, notifications)
+Resend --> Logic : Email Confirmations
+
+' Authentication Flow
+Auth --> DB : Verify Credentials
+Auth --> Endpoints : JWT Tokens
+
+note right of API
+  **System Components:**
+  - Authentication & Authorization
+  - Organization Management
+  - Employee Management
+  - Attendance Tracking
+  - Leave Request Management
+  - Payroll Processing
+  - Subscription Management
+  - Dashboard & Analytics
+  - Notification System
+end note
+
+note bottom of Fapshi
+  **Payment Integration:**
+  - Direct Pay API
+  - Webhook Callbacks
+  - Transaction Status Updates
+end note
+
+note bottom of Cloudinary
+  **Image Management:**
+  - Organization Logos
+  - Employee Photos
+  - CDN Delivery
+end note
+
+note bottom of Resend
+  **Email Services:**
+  - OTP Verification
+  - Password Resets
+  - Leave Notifications
+end note
+
+@enduml
