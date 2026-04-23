@@ -15,7 +15,6 @@ from app.models.organization import Organization
 from app.models.attendance import Attendance, AttendanceType
 from app.models.employee_session import EmployeeSession
 from app.core.config import settings
-from app.utils.geofence import is_within_geofence, get_distance_from_geofence
 from datetime import datetime, timedelta, date
 from decimal import Decimal
 from typing import Optional
@@ -292,7 +291,7 @@ async def check_in(
     """
     Record check-in for the current employee.
     Only one check-in per day is allowed.
-    Location must be within the organization's geofence.
+    Distance/geofence enforcement is disabled.
     """
     try:
         # Get organization
@@ -306,33 +305,14 @@ async def check_in(
                 status_code=status.HTTP_404_NOT_FOUND
             )
         
-        # Check if geofence is set
-        if not organization.geofence_latitude or not organization.geofence_longitude or not organization.geofence_radius:
-            return error_response(
-                message="Geofence not configured for this organization. Please contact your administrator.",
-                status_code=status.HTTP_400_BAD_REQUEST
-            )
-        
         # Validate and convert location coordinates
         try:
-            check_lat = float(location_latitude)
-            check_lon = float(location_longitude)
+            float(location_latitude)
+            float(location_longitude)
         except (ValueError, TypeError):
             return error_response(
                 message="Invalid location coordinates",
                 status_code=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Validate location is within geofence
-        center_lat = float(organization.geofence_latitude)
-        center_lon = float(organization.geofence_longitude)
-        radius = float(organization.geofence_radius)
-        
-        if not is_within_geofence(center_lat, center_lon, radius, check_lat, check_lon):
-            distance = get_distance_from_geofence(center_lat, center_lon, check_lat, check_lon)
-            return error_response(
-                message=f"You are outside the geofence area. You are {distance:.2f}m away from the allowed location. Please move within {radius}m radius to check in.",
-                status_code=status.HTTP_403_FORBIDDEN
             )
         
         # Get today's date range

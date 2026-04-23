@@ -20,7 +20,7 @@ class Organization(Base):
     # Geofence settings
     geofence_latitude = Column(Numeric(10, 8), nullable=True)  # Center latitude
     geofence_longitude = Column(Numeric(11, 8), nullable=True)  # Center longitude
-    geofence_radius = Column(Numeric(10, 2), nullable=True)  # Radius in meters (default 300m)
+    geofence_radius = Column(Numeric(10, 2), nullable=True)  # Radius in meters (default 10km)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
